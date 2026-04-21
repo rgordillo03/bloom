@@ -1,0 +1,17 @@
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body, #root { min-height: 100vh; min-height: 100dvh; }
+body {
+  font-family: 'Lora', serif; background: #FAF7F2; color: #3D3229;
+  -webkit-font-smoothing: antialiased;
+}
+input:focus, textarea:focus { outline: none; }
+input::placeholder, textarea::placeholder { color: #7A6A5A; opacity: 0.5; }
+button { font-family: 'Lora', serif; cursor: pointer; }
+button:active { transform: scale(0.97); }
+a { color: #C17F59; text-decoration: none; }
+::-webkit-scrollbar { display: none; }
+html { scrollbar-width: none; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes gentleFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
