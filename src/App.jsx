@@ -140,7 +140,7 @@ function AuthScreen() {
         Welcome to <em style={{ color: C.terra }}>Bloom</em>
       </h1>
       <p style={{ fontSize: 14, color: C.brownL, textAlign: 'center', maxWidth: 320, marginBottom: 32, lineHeight: 1.6 }}>
-        Tend your love, one tap at a time.
+        Your Hybrid Mindfulness Garden.
       </p>
 
       {/* CHOICE SCREEN */}
