@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabase.js';
-import { getTodayContent, todayDateStr } from './lib/content.js';
+import { getTodayContent, GARDEN_TYPES } from './lib/content.js';
 import * as db from './lib/db.js';
 
 // ─── COLORS ─────────────────────────────────────────────────
@@ -12,18 +12,17 @@ const C = {
   gold: '#C9A96E', blush: '#E8C4B8', peach: '#F0D5C8',
 };
 
-// ─── SHARED STYLES ──────────────────────────────────────────
 const btn = {
   primary: {
     background: `linear-gradient(135deg, ${C.terra}, ${C.terraD})`,
     color: '#fff', border: 'none', borderRadius: 14, padding: '14px 28px',
     fontSize: 14, cursor: 'pointer', boxShadow: '0 4px 16px rgba(193,127,89,0.2)',
-    width: '100%', transition: 'all 0.2s',
+    width: '100%', transition: 'all 0.2s', fontFamily: "'Lora', serif",
   },
   secondary: {
     background: 'transparent', color: C.sageD, border: `1.5px solid ${C.sage}`,
     borderRadius: 14, padding: '12px 20px', fontSize: 14,
-    cursor: 'pointer', width: '100%', transition: 'all 0.2s',
+    cursor: 'pointer', width: '100%', transition: 'all 0.2s', fontFamily: "'Lora', serif",
   },
 };
 
@@ -34,16 +33,16 @@ const inputStyle = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// ║  MAIN APP                                                   ║
+// MAIN APP
 // ═══════════════════════════════════════════════════════════════
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [couple, setCouple] = useState(null);
-  const [partner, setPartner] = useState(null);
+  const [gardens, setGardens] = useState([]);
+  const [activeGardenId, setActiveGardenId] = useState(null);
 
-  // Check auth on mount
+  // Initial load
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null);
@@ -53,7 +52,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
       setUser(session?.user || null);
       if (session?.user) loadUserData(session.user.id);
-      else { setProfile(null); setCouple(null); setPartner(null); setLoading(false); }
+      else { setProfile(null); setGardens([]); setActiveGardenId(null); setLoading(false); }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -62,26 +61,50 @@ export default function App() {
     try {
       const p = await db.getMyProfile(userId);
       setProfile(p);
-      if (p?.couple_id) {
-        const c = await db.getMyCouple(userId);
-        setCouple(c);
-        const pt = await db.getPartnerProfile(userId, p.couple_id);
-        setPartner(pt);
-      }
-    } catch (e) { console.error('Load error:', e); }
+      const gs = await db.getMyGardens(userId);
+      setGardens(gs);
+
+      // Restore last active garden from localStorage, else use solo (first)
+      const saved = localStorage.getItem('bloom-active-garden');
+      const exists = gs.find(g => g.id === saved);
+      setActiveGardenId(exists ? saved : (gs[0]?.id || null));
+    } catch (e) {
+      console.error('Load error:', e);
+    }
     setLoading(false);
   };
 
-  const refreshData = () => user && loadUserData(user.id);
+  const refreshGardens = async () => {
+    if (!user) return;
+    const gs = await db.getMyGardens(user.id);
+    setGardens(gs);
+    return gs;
+  };
+
+  const switchGarden = (gardenId) => {
+    setActiveGardenId(gardenId);
+    localStorage.setItem('bloom-active-garden', gardenId);
+  };
 
   if (loading) return <SplashScreen />;
   if (!user) return <AuthScreen />;
-  if (!profile?.couple_id) return <SetupScreen user={user} profile={profile} onComplete={refreshData} />;
-  return <MainApp user={user} profile={profile} couple={couple} partner={partner} refreshData={refreshData} />;
+  const activeGarden = gardens.find(g => g.id === activeGardenId);
+  if (!activeGarden) return <SplashScreen />;
+
+  return (
+    <MainApp
+      user={user}
+      profile={profile}
+      gardens={gardens}
+      activeGarden={activeGarden}
+      onSwitchGarden={switchGarden}
+      onRefreshGardens={refreshGardens}
+    />
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ║  SPLASH                                                     ║
+// SPLASH
 // ═══════════════════════════════════════════════════════════════
 function SplashScreen() {
   return (
@@ -90,16 +113,16 @@ function SplashScreen() {
         <BloomIcon size={56} />
       </div>
       <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 400, color: C.brown, marginTop: 16, letterSpacing: '0.06em' }}>bloom</h1>
-      <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 6 }}>loading your garden...</p>
+      <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 6 }}>tending your gardens...</p>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ║  AUTH SCREEN                                                ║
+// AUTH SCREEN
 // ═══════════════════════════════════════════════════════════════
 function AuthScreen() {
-  const [mode, setMode] = useState(null); // null = choose, 'signup', 'login'
+  const [mode, setMode] = useState(null); // 'signup', 'login'
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [sent, setSent] = useState(false);
@@ -113,25 +136,16 @@ function AuthScreen() {
     setBusy(true);
     setError('');
     const options = { emailRedirectTo: window.location.origin };
-    if (mode === 'signup') {
-      options.data = { display_name: name.trim() };
-    }
+    if (mode === 'signup') options.data = { display_name: name.trim() };
     const { error: authErr } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options,
+      email: email.trim(), options,
     });
     setBusy(false);
     if (authErr) { setError(authErr.message); return; }
     setSent(true);
   };
 
-  const reset = () => {
-    setMode(null);
-    setEmail('');
-    setName('');
-    setSent(false);
-    setError('');
-  };
+  const reset = () => { setMode(null); setEmail(''); setName(''); setSent(false); setError(''); };
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', background: `linear-gradient(180deg, ${C.bg}, ${C.bgDeep})` }}>
@@ -140,25 +154,16 @@ function AuthScreen() {
         Welcome to <em style={{ color: C.terra }}>Bloom</em>
       </h1>
       <p style={{ fontSize: 14, color: C.brownL, textAlign: 'center', maxWidth: 320, marginBottom: 32, lineHeight: 1.6 }}>
-        Your Hybrid Mindfulness Garden.
+        Tend your love, one tap at a time.
       </p>
 
-      {/* CHOICE SCREEN */}
       {!mode && !sent && (
         <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeUp 0.4s ease' }}>
-          <button onClick={() => setMode('signup')} style={btn.primary}>
-            🌱 Create New Account
-          </button>
-          <button onClick={() => setMode('login')} style={btn.secondary}>
-            🔑 Log In to Existing Account
-          </button>
-          <p style={{ fontSize: 11, color: C.brownM, opacity: 0.6, marginTop: 12, textAlign: 'center' }}>
-            New here? Create an account.<br />Already have a garden? Log in.
-          </p>
+          <button onClick={() => setMode('signup')} style={btn.primary}>🌱 Create New Account</button>
+          <button onClick={() => setMode('login')} style={btn.secondary}>🔑 Log In</button>
         </div>
       )}
 
-      {/* SIGN UP FORM */}
       {mode === 'signup' && !sent && (
         <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320, animation: 'fadeUp 0.4s ease' }}>
           <p style={{ fontSize: 13, color: C.terra, fontWeight: 600, textAlign: 'center', marginBottom: 18, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -173,13 +178,10 @@ function AuthScreen() {
           <button type="submit" disabled={busy || !email || !name} style={{ ...btn.primary, opacity: email && name ? 1 : 0.4 }}>
             {busy ? 'Sending...' : 'Sign Up ✨'}
           </button>
-          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>
-            ← Back
-          </button>
+          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>← Back</button>
         </form>
       )}
 
-      {/* LOG IN FORM */}
       {mode === 'login' && !sent && (
         <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320, animation: 'fadeUp 0.4s ease' }}>
           <p style={{ fontSize: 13, color: C.terra, fontWeight: 600, textAlign: 'center', marginBottom: 18, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -192,23 +194,18 @@ function AuthScreen() {
           <button type="submit" disabled={busy || !email} style={{ ...btn.primary, opacity: email ? 1 : 0.4 }}>
             {busy ? 'Sending...' : 'Send Magic Link ✨'}
           </button>
-          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>
-            ← Back
-          </button>
+          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>← Back</button>
         </form>
       )}
 
-      {/* MAGIC LINK SENT */}
       {sent && (
         <div style={{ textAlign: 'center', maxWidth: 320, animation: 'scaleIn 0.4s ease' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📬</div>
           <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, color: C.brown, marginBottom: 8 }}>Check your email!</h2>
           <p style={{ fontSize: 14, color: C.brownL, lineHeight: 1.6 }}>
-            We sent a magic link to <strong>{email}</strong>. Click it to {mode === 'signup' ? 'create your account' : 'sign in'}.
+            We sent a magic link to <strong>{email}</strong>.
           </p>
-          <button onClick={reset} style={{ ...btn.secondary, marginTop: 20, width: 'auto', padding: '10px 20px' }}>
-            Use a different email
-          </button>
+          <button onClick={reset} style={{ ...btn.secondary, marginTop: 20, width: 'auto', padding: '10px 20px' }}>Use a different email</button>
         </div>
       )}
     </div>
@@ -216,149 +213,68 @@ function AuthScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ║  SETUP SCREEN (Create or Join Garden)                       ║
+// MAIN APP — Garden switcher + tab content
 // ═══════════════════════════════════════════════════════════════
-function SetupScreen({ user, profile, onComplete }) {
-  const [mode, setMode] = useState(null); // null, 'create', 'join'
-  const [inviteCode, setInviteCode] = useState('');
-  const [createdCode, setCreatedCode] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const handleCreate = async () => {
-    setBusy(true);
-    try {
-      const couple = await db.createCouple(user.id);
-      setCreatedCode(couple.invite_code);
-    } catch (e) { setError(e.message); }
-    setBusy(false);
-  };
-
-  const handleJoin = async () => {
-    if (!inviteCode.trim()) return;
-    setBusy(true);
-    setError('');
-    try {
-      await db.joinCouple(user.id, inviteCode);
-      onComplete();
-    } catch (e) { setError(e.message); }
-    setBusy(false);
-  };
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-  };
-
-  return (
-    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', background: `linear-gradient(180deg, ${C.bg}, ${C.bgDeep})` }}>
-      <BloomIcon size={48} />
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, margin: '16px 0 6px' }}>
-        Hi {profile?.display_name || 'there'}!
-      </h2>
-      <p style={{ fontSize: 14, color: C.brownL, textAlign: 'center', maxWidth: 320, marginBottom: 32, lineHeight: 1.6 }}>
-        Time to plant your garden. You can start a new one or join your partner's.
-      </p>
-
-      {!mode && !createdCode && (
-        <div style={{ width: '100%', maxWidth: 300, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <button onClick={() => { setMode('create'); handleCreate(); }} style={btn.primary}>
-            🌱 Start a New Garden
-          </button>
-          <button onClick={() => setMode('join')} style={btn.secondary}>
-            🤝 Join My Partner's Garden
-          </button>
-          <button onClick={handleSignOut} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 12, cursor: 'pointer', padding: 8 }}>
-            Sign out
-          </button>
-        </div>
-      )}
-
-      {createdCode && (
-        <div style={{ textAlign: 'center', maxWidth: 320, animation: 'scaleIn 0.4s ease' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🌸</div>
-          <p style={{ fontSize: 14, color: C.brownL, marginBottom: 16 }}>
-            Your garden is planted! Share this code with your partner:
-          </p>
-          <div style={{
-            background: C.warm, borderRadius: 16, padding: '20px 24px',
-            fontSize: 32, fontFamily: "'Playfair Display', serif", fontWeight: 600,
-            color: C.terra, letterSpacing: 6, marginBottom: 16,
-            border: `2px dashed ${C.terraL}`,
-          }}>
-            {createdCode}
-          </div>
-          <p style={{ fontSize: 12, color: C.brownM, marginBottom: 20 }}>
-            They'll enter this code when they sign up
-          </p>
-          <button onClick={() => {
-            navigator.clipboard?.writeText(createdCode);
-            navigator.share?.({ text: `Join my Bloom garden! Use code: ${createdCode}\n\nOpen: ${window.location.origin}` }).catch(() => {});
-          }} style={{ ...btn.secondary, marginBottom: 10 }}>
-            Share Code 📤
-          </button>
-          <button onClick={onComplete} style={btn.primary}>
-            Continue to My Garden →
-          </button>
-        </div>
-      )}
-
-      {mode === 'join' && (
-        <div style={{ width: '100%', maxWidth: 300, animation: 'fadeUp 0.3s ease' }}>
-          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>Enter your partner's invite code</label>
-          <input
-            value={inviteCode}
-            onChange={e => setInviteCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-            placeholder="e.g. X7K9M2"
-            maxLength={6}
-            style={{ ...inputStyle, textAlign: 'center', fontSize: 22, letterSpacing: 6, fontFamily: "'Playfair Display', serif", marginBottom: 8 }}
-            autoFocus
-          />
-          {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 8, textAlign: 'center' }}>{error}</p>}
-          <button onClick={handleJoin} disabled={inviteCode.length < 6 || busy}
-            style={{ ...btn.primary, marginTop: 12, opacity: inviteCode.length >= 6 ? 1 : 0.4 }}>
-            {busy ? 'Joining...' : 'Join Garden 🌿'}
-          </button>
-          <button onClick={() => { setMode(null); setError(''); }} style={{ ...btn.secondary, marginTop: 10 }}>Back</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ║  MAIN APP (authenticated + paired)                          ║
-// ═══════════════════════════════════════════════════════════════
-function MainApp({ user, profile, couple, partner, refreshData }) {
+function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefreshGardens }) {
   const [tab, setTab] = useState('today');
   const [stats, setStats] = useState({ current_streak: 0, longest_streak: 0, total_blooms: 0 });
-  const { question, inspiration } = getTodayContent();
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const { question, inspiration } = getTodayContent(activeGarden.type);
 
   useEffect(() => {
-    if (couple?.id) {
-      db.getGardenStats(couple.id).then(setStats);
-      // Realtime subscriptions
-      const sub1 = db.subscribeToCheckins(couple.id, () => {
-        db.getGardenStats(couple.id).then(setStats);
+    if (activeGarden?.id) {
+      db.getGardenStats(activeGarden.id).then(setStats);
+      const sub = db.subscribeToCheckins(activeGarden.id, () => {
+        db.getGardenStats(activeGarden.id).then(setStats);
       });
-      return () => { supabase.removeChannel(sub1); };
+      return () => { supabase.removeChannel(sub); };
     }
-  }, [couple?.id]);
+  }, [activeGarden?.id]);
 
-  const names = [profile?.display_name, partner?.display_name].filter(Boolean).join(' & ') || 'Your Garden';
+  const meta = GARDEN_TYPES[activeGarden.type];
 
   return (
     <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ flex: 1, padding: '20px 20px 100px', maxWidth: 420, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-        {tab === 'today' && (
-          <TodayTab user={user} profile={profile} couple={couple} partner={partner}
-            question={question} inspiration={inspiration} stats={stats}
-            onCheckIn={() => db.getGardenStats(couple.id).then(setStats)} />
-        )}
-        {tab === 'garden' && <GardenTab names={names} stats={stats} coupleId={couple?.id} />}
-        {tab === 'notes' && <NotesTab user={user} profile={profile} couple={couple} partner={partner} />}
-        {tab === 'moments' && <MomentsTab user={user} couple={couple} />}
+
+      {/* Top bar with garden switcher */}
+      <div style={{ padding: '16px 20px 8px', maxWidth: 420, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        <button onClick={() => setShowSwitcher(true)} style={{
+          width: '100%', background: C.warm, border: `1px solid ${C.bgDeep}`,
+          borderRadius: 14, padding: '12px 16px', display: 'flex',
+          alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer',
+          fontFamily: "'Lora', serif",
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 22 }}>{meta.icon}</span>
+            <div style={{ textAlign: 'left' }}>
+              <p style={{ fontSize: 9, color: C.brownM, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 1 }}>
+                {meta.label} garden
+              </p>
+              <p style={{ fontSize: 14, color: C.brown, fontWeight: 500 }}>{activeGarden.name}</p>
+            </div>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.brownM} strokeWidth="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
       </div>
 
+      {/* Tab content */}
+      <div style={{ flex: 1, padding: '8px 20px 100px', maxWidth: 420, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        {tab === 'today' && (
+          <TodayTab user={user} profile={profile} garden={activeGarden}
+            question={question} inspiration={inspiration} stats={stats}
+            onCheckIn={() => db.getGardenStats(activeGarden.id).then(setStats)}
+            onShowSettings={() => setShowSettings(true)} />
+        )}
+        {tab === 'garden' && <GardenTab gardenName={activeGarden.name} stats={stats} gardenId={activeGarden.id} />}
+        {tab === 'notes' && <NotesTab user={user} garden={activeGarden} />}
+        {tab === 'moments' && <MomentsTab user={user} garden={activeGarden} />}
+      </div>
+
+      {/* Bottom navigation */}
       <nav style={{
         position: 'fixed', bottom: 0, left: 0, right: 0,
         background: 'rgba(253,249,243,0.92)', backdropFilter: 'blur(12px)',
@@ -383,14 +299,460 @@ function MainApp({ user, profile, couple, partner, refreshData }) {
           </button>
         ))}
       </nav>
+
+      {/* Modals */}
+      {showSwitcher && (
+        <GardenSwitcher
+          gardens={gardens}
+          activeId={activeGarden.id}
+          onSelect={(id) => { onSwitchGarden(id); setShowSwitcher(false); }}
+          onCreate={() => { setShowSwitcher(false); setShowCreate(true); }}
+          onClose={() => setShowSwitcher(false)}
+          onSignOut={async () => { await supabase.auth.signOut(); }}
+        />
+      )}
+
+      {showCreate && (
+        <CreateGardenModal
+          user={user}
+          onCreated={async () => {
+            setShowCreate(false);
+            const newGardens = await onRefreshGardens();
+            // Switch to the newest garden (last created)
+            if (newGardens?.length) {
+              const newest = newGardens.reduce((a, b) =>
+                new Date(a.created_at) > new Date(b.created_at) ? a : b
+              );
+              onSwitchGarden(newest.id);
+            }
+          }}
+          onClose={() => setShowCreate(false)}
+        />
+      )}
+
+      {showSettings && (
+        <GardenSettingsModal
+          user={user}
+          garden={activeGarden}
+          onUpdated={async () => {
+            await onRefreshGardens();
+            setShowSettings(false);
+          }}
+          onLeft={async () => {
+            const newGardens = await onRefreshGardens();
+            // Switch to solo garden
+            const solo = newGardens?.find(g => g.type === 'solo');
+            if (solo) onSwitchGarden(solo.id);
+            setShowSettings(false);
+          }}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ║  TODAY TAB                                                  ║
+// GARDEN SWITCHER MODAL
 // ═══════════════════════════════════════════════════════════════
-function TodayTab({ user, profile, couple, partner, question, inspiration, stats, onCheckIn }) {
+function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSignOut }) {
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(46,36,28,0.4)',
+      backdropFilter: 'blur(4px)', zIndex: 200,
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      animation: 'fadeIn 0.2s ease',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: C.bg, borderRadius: '24px 24px 0 0',
+        width: '100%', maxWidth: 420, padding: '20px 20px max(20px, env(safe-area-inset-bottom))',
+        animation: 'slideUp 0.3s cubic-bezier(0.22,1,0.36,1)',
+        maxHeight: '80vh', overflowY: 'auto',
+      }}>
+        <div style={{ width: 40, height: 4, background: C.bgDeep, borderRadius: 2, margin: '0 auto 20px' }} />
+        <p style={{ fontSize: 11, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14, textAlign: 'center' }}>
+          Switch garden
+        </p>
+
+        {gardens.map(g => {
+          const meta = GARDEN_TYPES[g.type];
+          const isActive = g.id === activeId;
+          return (
+            <button key={g.id} onClick={() => onSelect(g.id)} style={{
+              width: '100%', background: isActive ? `${C.terraL}20` : C.warm,
+              border: `1.5px solid ${isActive ? C.terra : 'transparent'}`,
+              borderRadius: 14, padding: '14px 16px', marginBottom: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              cursor: 'pointer', fontFamily: "'Lora', serif", textAlign: 'left',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 24 }}>{meta.icon}</span>
+                <div>
+                  <p style={{ fontSize: 14, color: C.brown, fontWeight: 500, marginBottom: 2 }}>{g.name}</p>
+                  <p style={{ fontSize: 11, color: C.brownM }}>{meta.label}</p>
+                </div>
+              </div>
+              {isActive && (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.terra} strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M5 12l5 5L20 7"/>
+                </svg>
+              )}
+            </button>
+          );
+        })}
+
+        <button onClick={onCreate} style={{
+          width: '100%', background: 'transparent', border: `1.5px dashed ${C.terraL}`,
+          borderRadius: 14, padding: '14px 16px', marginTop: 8,
+          color: C.terra, cursor: 'pointer', fontFamily: "'Lora', serif",
+          fontSize: 14, fontWeight: 500,
+        }}>
+          + Plant a new garden
+        </button>
+
+        <button onClick={onSignOut} style={{
+          background: 'none', border: 'none', color: C.brownM,
+          fontSize: 12, marginTop: 16, cursor: 'pointer',
+          padding: 10, width: '100%', fontFamily: "'Lora', serif",
+        }}>
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CREATE GARDEN MODAL
+// ═══════════════════════════════════════════════════════════════
+function CreateGardenModal({ user, onCreated, onClose }) {
+  const [step, setStep] = useState('choose'); // 'choose', 'create', 'join'
+  const [type, setType] = useState(null);
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [createdGarden, setCreatedGarden] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const handleCreate = async () => {
+    if (!name.trim() || !type) return;
+    setBusy(true); setError('');
+    try {
+      const garden = await db.createGarden(user.id, name, type);
+      setCreatedGarden(garden);
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  const handleJoin = async () => {
+    if (!code.trim()) return;
+    setBusy(true); setError('');
+    try {
+      await db.joinGarden(user.id, code);
+      onCreated();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(46,36,28,0.5)',
+      backdropFilter: 'blur(6px)', zIndex: 250,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 20, animation: 'fadeIn 0.2s ease',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: C.bg, borderRadius: 24, padding: 28,
+        width: '100%', maxWidth: 380, animation: 'scaleIn 0.3s ease',
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+
+        {/* CHOOSE STEP */}
+        {step === 'choose' && (
+          <>
+            <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, textAlign: 'center', marginBottom: 6 }}>
+              Plant a new garden
+            </h2>
+            <p style={{ fontSize: 13, color: C.brownM, textAlign: 'center', marginBottom: 24 }}>
+              Start a new garden, or join one with an invite code
+            </p>
+
+            <button onClick={() => { setStep('create'); setType('couple'); }} style={{
+              width: '100%', background: C.warm, border: `1px solid ${C.bgDeep}`,
+              borderRadius: 14, padding: 18, marginBottom: 10, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+              fontFamily: "'Lora', serif",
+            }}>
+              <span style={{ fontSize: 32 }}>💑</span>
+              <div>
+                <p style={{ fontSize: 15, color: C.brown, fontWeight: 600, marginBottom: 2 }}>Couple Garden</p>
+                <p style={{ fontSize: 12, color: C.brownM }}>For you and your partner</p>
+              </div>
+            </button>
+
+            <button onClick={() => { setStep('create'); setType('group'); }} style={{
+              width: '100%', background: C.warm, border: `1px solid ${C.bgDeep}`,
+              borderRadius: 14, padding: 18, marginBottom: 16, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+              fontFamily: "'Lora', serif",
+            }}>
+              <span style={{ fontSize: 32 }}>🤝</span>
+              <div>
+                <p style={{ fontSize: 15, color: C.brown, fontWeight: 600, marginBottom: 2 }}>Group Garden</p>
+                <p style={{ fontSize: 12, color: C.brownM }}>For family, friends, chosen family</p>
+              </div>
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 16px' }}>
+              <div style={{ flex: 1, height: 1, background: C.bgDeep }} />
+              <span style={{ fontSize: 11, color: C.brownM, textTransform: 'uppercase', letterSpacing: '0.08em' }}>or</span>
+              <div style={{ flex: 1, height: 1, background: C.bgDeep }} />
+            </div>
+
+            <button onClick={() => setStep('join')} style={btn.secondary}>
+              Join with invite code
+            </button>
+
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none', color: C.brownM, fontSize: 12,
+              marginTop: 14, cursor: 'pointer', padding: 8, width: '100%',
+              fontFamily: "'Lora', serif",
+            }}>Cancel</button>
+          </>
+        )}
+
+        {/* CREATE STEP */}
+        {step === 'create' && !createdGarden && (
+          <>
+            <button onClick={() => setStep('choose')} style={{
+              background: 'none', border: 'none', color: C.brownM,
+              fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 16,
+              fontFamily: "'Lora', serif",
+            }}>← Back</button>
+            <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, textAlign: 'center', marginBottom: 6 }}>
+              {GARDEN_TYPES[type].icon} Name your {GARDEN_TYPES[type].label.toLowerCase()} garden
+            </h2>
+            <p style={{ fontSize: 13, color: C.brownM, textAlign: 'center', marginBottom: 20 }}>
+              {type === 'couple' ? 'Like "Rafael & Ronja" or "Us"' : 'Like "Family", "The Crew", "Best Friends Forever"'}
+            </p>
+
+            <input
+              value={name} onChange={e => setName(e.target.value)}
+              placeholder={type === 'couple' ? 'Rafael & Ronja' : 'Family Garden'}
+              style={{ ...inputStyle, marginBottom: 16, textAlign: 'center', fontFamily: "'Playfair Display', serif", fontSize: 18 }}
+              autoFocus
+              onKeyDown={e => e.key === 'Enter' && name.trim() && handleCreate()}
+            />
+            {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 8, textAlign: 'center' }}>{error}</p>}
+
+            <button onClick={handleCreate} disabled={!name.trim() || busy}
+              style={{ ...btn.primary, opacity: name.trim() ? 1 : 0.4 }}>
+              {busy ? 'Planting...' : 'Plant Garden 🌱'}
+            </button>
+          </>
+        )}
+
+        {/* CREATED — SHOW INVITE CODE */}
+        {createdGarden && (
+          <>
+            <div style={{ textAlign: 'center', animation: 'scaleIn 0.4s ease' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🌸</div>
+              <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 500, color: C.brown, marginBottom: 8 }}>
+                Garden planted!
+              </h2>
+              <p style={{ fontSize: 13, color: C.brownL, marginBottom: 20 }}>
+                Share this code to invite {type === 'couple' ? 'your partner' : 'others'}:
+              </p>
+              <div style={{
+                background: C.warm, borderRadius: 16, padding: '20px 24px',
+                fontSize: 30, fontFamily: "'Playfair Display', serif", fontWeight: 600,
+                color: C.terra, letterSpacing: 6, marginBottom: 16,
+                border: `2px dashed ${C.terraL}`,
+              }}>
+                {createdGarden.invite_code}
+              </div>
+              <button onClick={() => {
+                navigator.clipboard?.writeText(createdGarden.invite_code);
+                navigator.share?.({ text: `Join my Bloom garden! Use code: ${createdGarden.invite_code}\n\nOpen: ${window.location.origin}` }).catch(() => {});
+              }} style={{ ...btn.secondary, marginBottom: 10 }}>
+                Share Code 📤
+              </button>
+              <button onClick={onCreated} style={btn.primary}>
+                Continue to Garden →
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* JOIN STEP */}
+        {step === 'join' && (
+          <>
+            <button onClick={() => setStep('choose')} style={{
+              background: 'none', border: 'none', color: C.brownM,
+              fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 16,
+              fontFamily: "'Lora', serif",
+            }}>← Back</button>
+            <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, textAlign: 'center', marginBottom: 6 }}>
+              Join a garden
+            </h2>
+            <p style={{ fontSize: 13, color: C.brownM, textAlign: 'center', marginBottom: 20 }}>
+              Enter the 6-character invite code
+            </p>
+
+            <input
+              value={code}
+              onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              placeholder="X7K9M2"
+              maxLength={6}
+              style={{ ...inputStyle, textAlign: 'center', fontSize: 22, letterSpacing: 6, fontFamily: "'Playfair Display', serif", marginBottom: 8 }}
+              autoFocus
+            />
+            {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 8, textAlign: 'center' }}>{error}</p>}
+
+            <button onClick={handleJoin} disabled={code.length < 6 || busy}
+              style={{ ...btn.primary, marginTop: 12, opacity: code.length >= 6 ? 1 : 0.4 }}>
+              {busy ? 'Joining...' : 'Join Garden 🌿'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GARDEN SETTINGS MODAL
+// ═══════════════════════════════════════════════════════════════
+function GardenSettingsModal({ user, garden, onUpdated, onLeft, onClose }) {
+  const [members, setMembers] = useState([]);
+  const [name, setName] = useState(garden.name);
+  const [busy, setBusy] = useState(false);
+  const isOwner = garden.owner_id === user.id;
+
+  useEffect(() => {
+    db.getGardenMembers(garden.id).then(setMembers);
+  }, [garden.id]);
+
+  const handleRename = async () => {
+    if (!name.trim() || name === garden.name) return;
+    setBusy(true);
+    try { await db.renameGarden(garden.id, name); onUpdated(); }
+    catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+
+  const handleLeave = async () => {
+    if (!confirm(`Leave "${garden.name}"? You won't see its content anymore.`)) return;
+    setBusy(true);
+    try { await db.leaveGarden(user.id, garden.id); onLeft(); }
+    catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(46,36,28,0.5)',
+      backdropFilter: 'blur(6px)', zIndex: 250,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 20, animation: 'fadeIn 0.2s ease',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: C.bg, borderRadius: 24, padding: 28,
+        width: '100%', maxWidth: 380, animation: 'scaleIn 0.3s ease',
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <span style={{ fontSize: 32 }}>{GARDEN_TYPES[garden.type].icon}</span>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, marginTop: 8 }}>
+            Garden Settings
+          </h2>
+        </div>
+
+        {isOwner && garden.type !== 'solo' && (
+          <>
+            <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>Garden name</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              <input value={name} onChange={e => setName(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={handleRename} disabled={!name.trim() || name === garden.name || busy}
+                style={{ ...btn.primary, width: 'auto', padding: '14px 20px', opacity: (name.trim() && name !== garden.name) ? 1 : 0.4 }}>
+                Save
+              </button>
+            </div>
+          </>
+        )}
+
+        <p style={{ fontSize: 12, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          Members ({members.length})
+        </p>
+        <div style={{ marginBottom: 24 }}>
+          {members.map(m => (
+            <div key={m.user_id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '10px 14px', background: C.warm, borderRadius: 12, marginBottom: 6,
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%',
+                background: `linear-gradient(135deg, ${C.peach}, ${C.blush})`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: "'Playfair Display', serif", color: C.terraD, fontSize: 14, fontWeight: 600,
+              }}>
+                {m.profiles?.display_name?.[0]?.toUpperCase() || '?'}
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 14, color: C.brown, fontWeight: 500 }}>
+                  {m.profiles?.display_name}
+                  {m.user_id === user.id && <span style={{ fontSize: 11, color: C.brownM, marginLeft: 6 }}>(you)</span>}
+                </p>
+              </div>
+              {m.role === 'owner' && (
+                <span style={{ fontSize: 10, color: C.gold, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
+                  Owner
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {garden.type !== 'solo' && garden.invite_code && (
+          <div style={{
+            background: C.warm, borderRadius: 14, padding: 16, marginBottom: 20,
+            textAlign: 'center', border: `1px dashed ${C.terraL}`,
+          }}>
+            <p style={{ fontSize: 11, color: C.brownM, marginBottom: 6 }}>Invite code</p>
+            <p style={{ fontSize: 22, fontFamily: "'Playfair Display', serif", fontWeight: 600, color: C.terra, letterSpacing: 4, marginBottom: 8 }}>
+              {garden.invite_code}
+            </p>
+            <button onClick={() => navigator.share?.({ text: `Join my Bloom garden! Code: ${garden.invite_code}\n${window.location.origin}` }).catch(() => navigator.clipboard?.writeText(garden.invite_code))}
+              style={{ ...btn.secondary, padding: '8px 18px', fontSize: 12, width: 'auto' }}>
+              Share Code 📤
+            </button>
+          </div>
+        )}
+
+        {garden.type !== 'solo' && (
+          <button onClick={handleLeave} disabled={busy} style={{
+            width: '100%', background: 'transparent', border: `1px solid #C75050`,
+            color: '#C75050', borderRadius: 12, padding: 12, fontSize: 13,
+            cursor: 'pointer', fontFamily: "'Lora', serif",
+          }}>
+            Leave this garden
+          </button>
+        )}
+
+        <button onClick={onClose} style={{
+          background: 'none', border: 'none', color: C.brownM,
+          fontSize: 12, marginTop: 14, cursor: 'pointer',
+          padding: 8, width: '100%', fontFamily: "'Lora', serif",
+        }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TODAY TAB
+// ═══════════════════════════════════════════════════════════════
+function TodayTab({ user, profile, garden, question, inspiration, stats, onCheckIn, onShowSettings }) {
   const [todayIns, setTodayIns] = useState([]);
   const [answer, setAnswer] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -398,21 +760,19 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (couple?.id) db.getTodayCheckIns(couple.id).then(setTodayIns);
-  }, [couple?.id, justDone]);
+    if (garden?.id) db.getTodayCheckIns(garden.id).then(setTodayIns);
+  }, [garden?.id, justDone]);
 
   const myCheckIn = todayIns.find(c => c.user_id === user.id);
-  const partnerCheckIn = todayIns.find(c => c.user_id !== user.id);
+  const otherCheckIns = todayIns.filter(c => c.user_id !== user.id);
   const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
 
   const handleSubmit = async () => {
     if (!answer.trim()) return;
     setBusy(true);
     try {
-      await db.submitCheckIn(couple.id, user.id, question, answer.trim());
-      setAnswer('');
-      setShowForm(false);
-      setJustDone(true);
+      await db.submitCheckIn(garden.id, user.id, question, answer.trim());
+      setAnswer(''); setShowForm(false); setJustDone(true);
       onCheckIn();
       setTimeout(() => setJustDone(false), 3000);
     } catch (e) { alert(e.message); }
@@ -422,19 +782,27 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
   return (
     <div>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
         <div>
-          <p style={{ fontSize: 12, color: C.sage, marginBottom: 2 }}>{greeting}</p>
-          <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 500, color: C.brown }}>
-            {profile?.display_name}{partner ? ` & ${partner.display_name}` : ''}
+          <p style={{ fontSize: 11, color: C.sage, marginBottom: 1 }}>{greeting}</p>
+          <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 500, color: C.brown }}>
+            {profile?.display_name}
           </h1>
         </div>
-        <BloomIcon size={32} />
+        <button onClick={onShowSettings} style={{
+          background: C.warm, border: `1px solid ${C.bgDeep}`, borderRadius: 10,
+          width: 36, height: 36, cursor: 'pointer', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.brownM} strokeWidth="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
       </div>
 
-      {/* Streak */}
       {stats.current_streak > 0 && (
-        <div style={{ background: `${C.sageL}25`, borderRadius: 14, padding: '12px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ background: `${C.sageL}25`, borderRadius: 14, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 22 }}>🌱</span>
           <div>
             <p style={{ fontSize: 13, fontWeight: 600, color: C.brown }}>{stats.current_streak} day streak!</p>
@@ -444,7 +812,7 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
       )}
 
       {/* Inspiration */}
-      <div style={{ background: C.warm, borderRadius: 18, padding: '24px 22px', marginBottom: 18, boxShadow: '0 2px 10px rgba(61,50,41,0.05)' }}>
+      <div style={{ background: C.warm, borderRadius: 18, padding: '24px 22px', marginBottom: 16, boxShadow: '0 2px 10px rgba(61,50,41,0.05)' }}>
         <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Daily bloom</p>
         <p style={{ fontSize: 15, color: C.brown, lineHeight: 1.7, fontStyle: 'italic', fontFamily: "'Playfair Display', serif", marginBottom: 10 }}>
           "{inspiration.text}"
@@ -457,7 +825,7 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
         <button onClick={() => setShowForm(true)} style={{
           width: '100%', background: `linear-gradient(135deg, ${C.terra}, ${C.terraD})`,
           border: 'none', borderRadius: 16, padding: '20px 22px', textAlign: 'left',
-          marginBottom: 18, boxShadow: '0 4px 18px rgba(193,127,89,0.2)',
+          marginBottom: 16, boxShadow: '0 4px 18px rgba(193,127,89,0.2)', cursor: 'pointer',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <span>{question.icon}</span>
@@ -470,7 +838,7 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
 
       {/* Answer Form */}
       {showForm && (
-        <div style={{ background: C.warm, borderRadius: 18, padding: 22, marginBottom: 18, animation: 'fadeUp 0.3s ease', boxShadow: '0 2px 10px rgba(61,50,41,0.05)' }}>
+        <div style={{ background: C.warm, borderRadius: 18, padding: 22, marginBottom: 16, animation: 'fadeUp 0.3s ease', boxShadow: '0 2px 10px rgba(61,50,41,0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <span>{question.icon}</span>
             <span style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{question.cat}</span>
@@ -490,39 +858,31 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
         </div>
       )}
 
-      {/* Just Checked In */}
       {justDone && (
-        <div style={{ background: `${C.peach}40`, borderRadius: 16, padding: '24px 22px', marginBottom: 18, textAlign: 'center', animation: 'scaleIn 0.4s ease' }}>
+        <div style={{ background: `${C.peach}40`, borderRadius: 16, padding: '24px 22px', marginBottom: 16, textAlign: 'center', animation: 'scaleIn 0.4s ease' }}>
           <div style={{ fontSize: 36, marginBottom: 6, animation: 'gentleFloat 2s ease-in-out infinite' }}>🌸</div>
           <p style={{ fontSize: 15, fontFamily: "'Playfair Display', serif", color: C.brown, fontStyle: 'italic' }}>A new bloom in your garden!</p>
         </div>
       )}
 
-      {/* Already Done */}
-      {myCheckIn && !justDone && (
-        <div style={{ background: `${C.sageL}18`, borderRadius: 16, padding: '18px 20px', marginBottom: 18, textAlign: 'center', border: `1px solid ${C.sageL}35` }}>
+      {myCheckIn && !justDone && garden.type === 'solo' && (
+        <div style={{ background: `${C.sageL}18`, borderRadius: 16, padding: '18px 20px', marginBottom: 16, textAlign: 'center', border: `1px solid ${C.sageL}35` }}>
           <span style={{ fontSize: 24 }}>🌸</span>
           <p style={{ fontSize: 13, color: C.sageD, fontWeight: 500, margin: '6px 0 2px' }}>Today's bloom is planted!</p>
           <p style={{ fontSize: 11, color: C.brownM }}>Come back tomorrow for a new question</p>
         </div>
       )}
 
-      {/* Partner Status */}
-      {partner && myCheckIn && !partnerCheckIn && (
-        <div style={{ background: C.warm, borderRadius: 14, padding: '14px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 18 }}>⏳</span>
-          <p style={{ fontSize: 13, color: C.brownM }}>Waiting for {partner.display_name} to answer today's question...</p>
-        </div>
-      )}
-
-      {/* Both Answered — Reveal */}
-      {myCheckIn && partnerCheckIn && (
+      {/* Show your answer + others' answers (for couple/group) */}
+      {myCheckIn && (todayIns.length > 1 || garden.type === 'solo') && (
         <div style={{ marginTop: 4 }}>
-          <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Today's reflections</p>
-          {[myCheckIn, partnerCheckIn].map((ci, i) => (
-            <div key={i} style={{ background: C.warm, borderRadius: 14, padding: '14px 16px', marginBottom: 10, borderLeft: `3px solid ${i === 0 ? C.terra : C.sage}` }}>
-              <p style={{ fontSize: 12, color: i === 0 ? C.terra : C.sage, fontWeight: 600, marginBottom: 4 }}>
-                {ci.profiles?.display_name || 'Partner'}
+          <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            Today's reflection{todayIns.length > 1 ? 's' : ''}
+          </p>
+          {todayIns.map((ci, i) => (
+            <div key={ci.id} style={{ background: C.warm, borderRadius: 14, padding: '14px 16px', marginBottom: 10, borderLeft: `3px solid ${ci.user_id === user.id ? C.terra : C.sage}` }}>
+              <p style={{ fontSize: 12, color: ci.user_id === user.id ? C.terra : C.sage, fontWeight: 600, marginBottom: 4 }}>
+                {ci.profiles?.display_name || 'Anonymous'} {ci.user_id === user.id && '(you)'}
               </p>
               <p style={{ fontSize: 14, color: C.brown, lineHeight: 1.6 }}>{ci.answer}</p>
             </div>
@@ -530,13 +890,23 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
         </div>
       )}
 
-      {/* Invite Code (if no partner yet) */}
-      {!partner && couple?.invite_code && (
-        <div style={{ background: C.warm, borderRadius: 16, padding: 20, textAlign: 'center', marginTop: 10, border: `1px dashed ${C.terraL}` }}>
-          <p style={{ fontSize: 13, color: C.brownL, marginBottom: 10 }}>Share this code with your partner to join your garden:</p>
-          <p style={{ fontSize: 28, fontFamily: "'Playfair Display', serif", fontWeight: 600, color: C.terra, letterSpacing: 6 }}>{couple.invite_code}</p>
-          <button onClick={() => navigator.share?.({ text: `Join my Bloom garden! Code: ${couple.invite_code}\n${window.location.origin}` }).catch(() => navigator.clipboard?.writeText(couple.invite_code))}
-            style={{ ...btn.secondary, marginTop: 14, width: 'auto', padding: '8px 18px', fontSize: 12 }}>Share Code 📤</button>
+      {/* Waiting for others (couple/group) */}
+      {myCheckIn && garden.type !== 'solo' && otherCheckIns.length === 0 && (
+        <div style={{ background: C.warm, borderRadius: 14, padding: '14px 18px', marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 18 }}>⏳</span>
+          <p style={{ fontSize: 13, color: C.brownM }}>
+            Waiting for others in your garden to answer...
+          </p>
+        </div>
+      )}
+
+      {/* Show invite code if garden has one */}
+      {garden.invite_code && (
+        <div style={{ background: C.warm, borderRadius: 16, padding: 16, textAlign: 'center', marginTop: 14, border: `1px dashed ${C.terraL}` }}>
+          <p style={{ fontSize: 11, color: C.brownL, marginBottom: 6 }}>Invite code for this garden</p>
+          <p style={{ fontSize: 24, fontFamily: "'Playfair Display', serif", fontWeight: 600, color: C.terra, letterSpacing: 5 }}>{garden.invite_code}</p>
+          <button onClick={() => navigator.share?.({ text: `Join my Bloom garden! Code: ${garden.invite_code}\n${window.location.origin}` }).catch(() => navigator.clipboard?.writeText(garden.invite_code))}
+            style={{ ...btn.secondary, marginTop: 10, width: 'auto', padding: '8px 18px', fontSize: 12 }}>Share Code 📤</button>
         </div>
       )}
     </div>
@@ -544,13 +914,13 @@ function TodayTab({ user, profile, couple, partner, question, inspiration, stats
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ║  GARDEN TAB                                                 ║
+// GARDEN VIEW TAB
 // ═══════════════════════════════════════════════════════════════
-function GardenTab({ names, stats, coupleId }) {
+function GardenTab({ gardenName, stats, gardenId }) {
   const [history, setHistory] = useState([]);
   useEffect(() => {
-    if (coupleId) db.getRecentCheckIns(coupleId, 20).then(setHistory);
-  }, [coupleId, stats.total_blooms]);
+    if (gardenId) db.getRecentCheckIns(gardenId, 20).then(setHistory);
+  }, [gardenId, stats.total_blooms]);
 
   const flowerColors = [C.terra, C.terraL, C.blush, C.peach, C.gold, C.sage, '#D4869C', '#E8A87C', '#C3A6D8', C.sageL, '#D4A574', '#E0C4A8'];
   const positions = [];
@@ -564,7 +934,7 @@ function GardenTab({ names, stats, coupleId }) {
 
   return (
     <div style={{ textAlign: 'center', paddingBottom: 20 }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>{names}'s Garden</h2>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>{gardenName}</h2>
       <p style={{ fontSize: 12, color: C.sage, marginBottom: 20 }}>{stats.total_blooms} bloom{stats.total_blooms !== 1 ? 's' : ''} planted</p>
 
       <div style={{
@@ -637,45 +1007,49 @@ function GardenTab({ names, stats, coupleId }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ║  NOTES TAB                                                  ║
+// NOTES TAB
 // ═══════════════════════════════════════════════════════════════
-function NotesTab({ user, profile, couple, partner }) {
+function NotesTab({ user, garden }) {
   const [notes, setNotes] = useState([]);
   const [text, setText] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (couple?.id) {
-      db.getNotes(couple.id).then(setNotes);
-      const sub = db.subscribeToNotes(couple.id, () => db.getNotes(couple.id).then(setNotes));
+    if (garden?.id) {
+      db.getNotes(garden.id).then(setNotes);
+      const sub = db.subscribeToNotes(garden.id, () => db.getNotes(garden.id).then(setNotes));
       return () => supabase.removeChannel(sub);
     }
-  }, [couple?.id]);
+  }, [garden?.id]);
 
   const send = async () => {
     if (!text.trim()) return;
     setBusy(true);
     try {
-      await db.sendNote(couple.id, user.id, text.trim());
-      setText('');
-      setSent(true);
+      await db.sendNote(garden.id, user.id, text.trim());
+      setText(''); setSent(true);
       setTimeout(() => setSent(false), 2000);
-      db.getNotes(couple.id).then(setNotes);
+      db.getNotes(garden.id).then(setNotes);
     } catch (e) { alert(e.message); }
     setBusy(false);
   };
 
-  const recipientName = partner?.display_name || 'your partner';
+  const placeholder = garden.type === 'solo'
+    ? 'A note to yourself...'
+    : `Write something for your garden...`;
 
   return (
     <div style={{ paddingBottom: 20 }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>Love Notes</h2>
-      <p style={{ fontSize: 12, color: C.brownM, marginBottom: 18 }}>Leave a surprise for {recipientName}</p>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>
+        {garden.type === 'solo' ? 'Notes to Self' : 'Love Notes'}
+      </h2>
+      <p style={{ fontSize: 12, color: C.brownM, marginBottom: 18 }}>
+        {garden.type === 'solo' ? 'Letters to your future self' : 'Leave surprises for your garden'}
+      </p>
 
       <div style={{ background: C.warm, borderRadius: 16, padding: 18, marginBottom: 20, boxShadow: '0 2px 8px rgba(61,50,41,0.04)' }}>
-        <textarea value={text} onChange={e => setText(e.target.value)}
-          placeholder={`Write something for ${recipientName}...`}
+        <textarea value={text} onChange={e => setText(e.target.value)} placeholder={placeholder}
           rows={3} style={{ ...inputStyle, resize: 'none', lineHeight: 1.6, fontSize: 14, marginBottom: 10 }} />
         <button onClick={send} disabled={!text.trim() || busy}
           style={{ ...btn.primary, opacity: text.trim() ? 1 : 0.4 }}>
@@ -715,24 +1089,24 @@ function NotesTab({ user, profile, couple, partner }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ║  MOMENTS TAB                                                ║
+// MOMENTS TAB
 // ═══════════════════════════════════════════════════════════════
-function MomentsTab({ user, couple }) {
+function MomentsTab({ user, garden }) {
   const [moments, setMoments] = useState([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (couple?.id) db.getMoments(couple.id).then(setMoments);
-  }, [couple?.id]);
+    if (garden?.id) db.getMoments(garden.id).then(setMoments);
+  }, [garden?.id]);
 
   const add = async () => {
     if (!text.trim()) return;
     setBusy(true);
     try {
-      await db.addMoment(couple.id, user.id, text.trim());
+      await db.addMoment(garden.id, user.id, text.trim());
       setText('');
-      db.getMoments(couple.id).then(setMoments);
+      db.getMoments(garden.id).then(setMoments);
     } catch (e) { alert(e.message); }
     setBusy(false);
   };
@@ -740,7 +1114,9 @@ function MomentsTab({ user, couple }) {
   return (
     <div style={{ paddingBottom: 20 }}>
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>Moments</h2>
-      <p style={{ fontSize: 12, color: C.brownM, marginBottom: 18 }}>Your shared timeline</p>
+      <p style={{ fontSize: 12, color: C.brownM, marginBottom: 18 }}>
+        {garden.type === 'solo' ? 'Your timeline of meaningful moments' : 'Your shared timeline'}
+      </p>
 
       <div style={{ background: C.warm, borderRadius: 16, padding: 18, marginBottom: 22, boxShadow: '0 2px 8px rgba(61,50,41,0.04)' }}>
         <input value={text} onChange={e => setText(e.target.value)} placeholder="Capture a memory or milestone..."
@@ -766,14 +1142,16 @@ function MomentsTab({ user, couple }) {
       ) : (
         <div style={{ textAlign: 'center', padding: '36px 20px' }}>
           <span style={{ fontSize: 36, opacity: 0.3 }}>📸</span>
-          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>Start capturing moments together</p>
+          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>Start capturing moments</p>
         </div>
       )}
     </div>
   );
 }
 
-// ─── BLOOM ICON ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// BLOOM ICON
+// ═══════════════════════════════════════════════════════════════
 function BloomIcon({ size = 32 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
