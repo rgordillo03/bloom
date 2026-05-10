@@ -299,7 +299,7 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
           { id: 'today', label: 'Today', icon: '☀️' },
           { id: 'garden', label: 'Garden', icon: '🌱' },
           { id: 'notes', label: 'Notes', icon: '💌' },
-          { id: 'moments', label: 'Moments', icon: '📸' },
+          { id: 'moments', label: 'Goals', icon: '🏆' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
