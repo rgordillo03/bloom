@@ -1370,9 +1370,9 @@ function MomentsTab({ user, garden }) {
 
   return (
     <div style={{ paddingBottom: 20 }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>Moments</h2>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>Goals</h2>
       <p style={{ fontSize: 12, color: C.brownM, marginBottom: 18 }}>
-        {garden.type === 'solo' ? 'Your timeline of meaningful moments' : 'Your shared timeline'}
+        {garden.type === 'solo' ? 'Your timeline of meaningful Goals' : 'Your shared timeline'}
       </p>
 
       <div style={{ background: C.warm, borderRadius: 16, padding: 18, marginBottom: 22, boxShadow: '0 2px 8px rgba(61,50,41,0.04)' }}>
@@ -1398,8 +1398,8 @@ function MomentsTab({ user, garden }) {
         </div>
       ) : (
         <div style={{ textAlign: 'center', padding: '36px 20px' }}>
-          <span style={{ fontSize: 36, opacity: 0.3 }}>📸</span>
-          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>Start capturing moments</p>
+          <span style={{ fontSize: 36, opacity: 0.3 }}>🏆</span>
+          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>Start capturing daily Goals</p>
         </div>
       )}
     </div>
