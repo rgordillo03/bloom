@@ -276,6 +276,25 @@ export async function getRecentCheckIns(gardenId, limit = 14) {
   return data || [];
 }
 
+export async function updateCheckIn(checkInId, newAnswer) {
+  const { data, error } = await supabase
+    .from('check_ins')
+    .update({ answer: newAnswer })
+    .eq('id', checkInId)
+    .select('*, profiles:user_id(display_name)')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCheckIn(checkInId) {
+  const { error } = await supabase
+    .from('check_ins')
+    .delete()
+    .eq('id', checkInId);
+  if (error) throw error;
+}
+
 // ─── GARDEN STATS ───────────────────────────────────────
 export async function getGardenStats(gardenId) {
   const { data } = await supabase
@@ -311,6 +330,25 @@ export async function markNoteRead(noteId) {
   await supabase.from('notes').update({ is_read: true }).eq('id', noteId);
 }
 
+export async function updateNote(noteId, newContent) {
+  const { data, error } = await supabase
+    .from('notes')
+    .update({ content: newContent })
+    .eq('id', noteId)
+    .select('*, profiles:from_user_id(display_name)')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteNote(noteId) {
+  const { error } = await supabase
+    .from('notes')
+    .delete()
+    .eq('id', noteId);
+  if (error) throw error;
+}
+
 // ─── MOMENTS ────────────────────────────────────────────
 export async function addMoment(gardenId, userId, title) {
   const { data, error } = await supabase
@@ -335,6 +373,25 @@ export async function getMoments(gardenId, limit = 30) {
     .order('moment_date', { ascending: false })
     .limit(limit);
   return data || [];
+}
+
+export async function updateMoment(momentId, newTitle) {
+  const { data, error } = await supabase
+    .from('moments')
+    .update({ title: newTitle })
+    .eq('id', momentId)
+    .select('*, profiles:created_by(display_name)')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteMoment(momentId) {
+  const { error } = await supabase
+    .from('moments')
+    .delete()
+    .eq('id', momentId);
+  if (error) throw error;
 }
 
 // ─── REALTIME ───────────────────────────────────────────
