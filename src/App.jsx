@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabase.js';
-import { getTodayContent, GARDEN_TYPES } from './lib/content.js';
+import { getTodayContent, GARDEN_TYPES, LANGUAGES } from './lib/content.js';
 import * as db from './lib/db.js';
 
 // ─── COLORS ─────────────────────────────────────────────────
@@ -81,6 +81,13 @@ export default function App() {
     return gs;
   };
 
+  const refreshProfile = async () => {
+    if (!user) return;
+    const p = await db.getMyProfile(user.id);
+    setProfile(p);
+    return p;
+  };
+
   const switchGarden = (gardenId) => {
     setActiveGardenId(gardenId);
     localStorage.setItem('bloom-active-garden', gardenId);
@@ -99,6 +106,7 @@ export default function App() {
       activeGarden={activeGarden}
       onSwitchGarden={switchGarden}
       onRefreshGardens={refreshGardens}
+      onRefreshProfile={refreshProfile}
     />
   );
 }
@@ -215,14 +223,28 @@ function AuthScreen() {
 // ═══════════════════════════════════════════════════════════════
 // MAIN APP — Garden switcher + tab content
 // ═══════════════════════════════════════════════════════════════
-function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefreshGardens }) {
+function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefreshGardens, onRefreshProfile }) {
   const [tab, setTab] = useState('today');
   const [stats, setStats] = useState({ current_streak: 0, longest_streak: 0, total_blooms: 0 });
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [pendingCounts, setPendingCounts] = useState({});
-  const { question, inspiration } = getTodayContent(activeGarden.type);
+  const [content, setContent] = useState({ question: null, inspiration: null });
+  const language = profile?.language || 'en';
+
+  // Fetch today's question + inspiration from Supabase whenever
+  // the active garden or the user's language changes.
+  useEffect(() => {
+    if (!activeGarden?.type) return;
+    let cancelled = false;
+    getTodayContent(activeGarden.type, language).then(c => {
+      if (!cancelled) setContent(c);
+    });
+    return () => { cancelled = true; };
+  }, [activeGarden?.type, language]);
+
+  const { question, inspiration } = content;
 
   useEffect(() => {
     if (activeGarden?.id) {
@@ -322,6 +344,9 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
           onCreate={() => { setShowSwitcher(false); setShowCreate(true); }}
           onClose={() => setShowSwitcher(false)}
           onSignOut={async () => { await supabase.auth.signOut(); }}
+          user={user}
+          profile={profile}
+          onRefreshProfile={onRefreshProfile}
         />
       )}
 
@@ -369,7 +394,21 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
 // ═══════════════════════════════════════════════════════════════
 // GARDEN SWITCHER MODAL
 // ═══════════════════════════════════════════════════════════════
-function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSignOut }) {
+function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSignOut, user, profile, onRefreshProfile }) {
+  const currentLang = profile?.language || 'en';
+  const [switching, setSwitching] = useState(false);
+  const handleLangChange = async (code) => {
+    if (code === currentLang || !user?.id || switching) return;
+    setSwitching(true);
+    try {
+      await db.updateLanguage(user.id, code);
+      if (onRefreshProfile) await onRefreshProfile();
+    } catch (e) {
+      console.error('Language update failed', e);
+      alert('Could not change language. Try again.');
+    }
+    setSwitching(false);
+  };
   return (
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(46,36,28,0.4)',
@@ -423,6 +462,34 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
         }}>
           + Plant a new garden
         </button>
+
+        {/* ─── Language switcher ─── */}
+        <div style={{ marginTop: 20 }}>
+          <p style={{ fontSize: 11, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, textAlign: 'center' }}>
+            Language
+          </p>
+          <div style={{ display: 'flex', gap: 6, background: C.warm, borderRadius: 12, padding: 4 }}>
+            {LANGUAGES.map(lng => {
+              const active = currentLang === lng.code;
+              return (
+                <button key={lng.code} onClick={() => handleLangChange(lng.code)} disabled={switching} style={{
+                  flex: 1,
+                  background: active ? C.bg : 'transparent',
+                  border: active ? `1px solid ${C.terra}` : '1px solid transparent',
+                  borderRadius: 10, padding: '10px 8px',
+                  cursor: switching ? 'wait' : 'pointer',
+                  fontFamily: "'Lora', serif", fontSize: 13,
+                  color: active ? C.brown : C.brownM,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  opacity: switching && !active ? 0.5 : 1,
+                }}>
+                  <span style={{ fontSize: 16 }}>{lng.flag}</span>
+                  <span>{lng.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <button onClick={onSignOut} style={{
           background: 'none', border: 'none', color: C.brownM,
@@ -892,104 +959,214 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
 // ═══════════════════════════════════════════════════════════════
 // CHECK-IN FLIP CARD — tap to flip between answer and question
 // ═══════════════════════════════════════════════════════════════
-function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false }) {
+function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, onUpdated, onDeleted }) {
   const [flipped, setFlipped] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(checkIn.answer);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
   const accentColor = isMine ? C.terra : C.sage;
   const padding = compact ? '12px 14px' : '14px 16px';
   const borderRadius = compact ? 12 : 14;
   const borderWidth = compact ? '2px' : '3px';
 
-  return (
-    <div
-      onClick={() => setFlipped(!flipped)}
-      style={{
-        position: 'relative',
-        marginBottom: compact ? 8 : 10,
-        cursor: 'pointer',
-        perspective: '1000px',
-        minHeight: compact ? 70 : 80,
-      }}
-    >
+  const handleSaveEdit = async () => {
+    const trimmed = editText.trim();
+    if (!trimmed || trimmed === checkIn.answer) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = await db.updateCheckIn(checkIn.id, trimmed);
+      setEditing(false);
+      if (onUpdated) onUpdated(updated);
+    } catch (e) {
+      alert('Could not save your changes: ' + e.message);
+    }
+    setBusy(false);
+  };
+
+  const handleDelete = async () => {
+    setBusy(true);
+    try {
+      await db.deleteCheckIn(checkIn.id);
+      setConfirmDelete(false);
+      if (onDeleted) onDeleted(checkIn.id);
+    } catch (e) {
+      alert('Could not delete: ' + e.message);
+      setBusy(false);
+    }
+  };
+
+  // Editing mode — no flip, just an inline editor
+  if (editing) {
+    return (
       <div style={{
-        position: 'relative',
-        width: '100%',
-        transformStyle: 'preserve-3d',
-        transition: 'transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1)',
-        transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+        background: C.warm,
+        borderRadius,
+        padding,
+        borderLeft: `${borderWidth} solid ${accentColor}`,
+        marginBottom: compact ? 8 : 10,
       }}>
-        {/* FRONT — Answer side */}
-        <div style={{
-          background: C.warm,
-          borderRadius,
-          padding,
-          borderLeft: `${borderWidth} solid ${accentColor}`,
-          backfaceVisibility: 'hidden',
-          WebkitBackfaceVisibility: 'hidden',
-          position: flipped ? 'absolute' : 'relative',
-          width: '100%',
-          top: 0, left: 0,
-          boxSizing: 'border-box',
-        }}>
-          {showAuthor && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <p style={{ fontSize: 12, color: accentColor, fontWeight: 600 }}>
-                {checkIn.profiles?.display_name || 'Anonymous'} {isMine && '(you)'}
-              </p>
-              <span style={{ fontSize: 9, color: C.brownM, opacity: 0.5, letterSpacing: '0.05em' }}>
-                ↻ tap
-              </span>
-            </div>
-          )}
-          {!showAuthor && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-              <p style={{ fontSize: 11, color: C.brownM }}>
-                {checkIn.profiles?.display_name} · {checkIn.check_in_date}
-              </p>
-              <span style={{ fontSize: 9, color: C.brownM, opacity: 0.5, letterSpacing: '0.05em' }}>
-                ↻ tap
-              </span>
-            </div>
-          )}
-          <p style={{ fontSize: compact ? 13 : 14, color: C.brown, lineHeight: 1.6 }}>
-            {checkIn.answer}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <p style={{ fontSize: 11, color: accentColor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Editing your reflection
           </p>
         </div>
-
-        {/* BACK — Question side */}
-        <div style={{
-          background: `linear-gradient(135deg, ${accentColor}15, ${accentColor}08)`,
-          borderRadius,
-          padding,
-          borderLeft: `${borderWidth} solid ${accentColor}`,
-          backfaceVisibility: 'hidden',
-          WebkitBackfaceVisibility: 'hidden',
-          transform: 'rotateY(180deg)',
-          position: 'absolute',
-          width: '100%',
-          top: 0, left: 0,
-          boxSizing: 'border-box',
-          minHeight: compact ? 70 : 80,
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-        }}>
-          <p style={{
-            fontSize: 10, color: accentColor, textTransform: 'uppercase',
-            letterSpacing: '0.1em', marginBottom: 6, fontWeight: 600,
-          }}>
-            Question · {checkIn.category}
-          </p>
-          <p style={{
-            fontFamily: "'Playfair Display', serif",
-            fontStyle: 'italic',
-            fontSize: compact ? 14 : 15,
-            color: C.brown, lineHeight: 1.5,
-          }}>
-            {checkIn.question_text}
-          </p>
+        <textarea
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+          rows={3}
+          autoFocus
+          style={{
+            ...inputStyle,
+            fontSize: compact ? 13 : 14,
+            resize: 'none',
+            lineHeight: 1.6,
+            marginBottom: 10,
+          }}
+        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => { setEditText(checkIn.answer); setEditing(false); }}
+            disabled={busy}
+            style={{ ...btn.secondary, padding: '8px 14px', fontSize: 12, flex: 1 }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSaveEdit}
+            disabled={busy || !editText.trim()}
+            style={{ ...btn.primary, padding: '8px 14px', fontSize: 12, flex: 1, opacity: (busy || !editText.trim()) ? 0.5 : 1 }}
+          >
+            {busy ? 'Saving...' : 'Save'}
+          </button>
         </div>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <>
+      <div
+        onClick={() => setFlipped(!flipped)}
+        style={{
+          position: 'relative',
+          marginBottom: compact ? 8 : 10,
+          cursor: 'pointer',
+          perspective: '1000px',
+          minHeight: compact ? 70 : 80,
+        }}
+      >
+        <div style={{
+          position: 'relative',
+          width: '100%',
+          transformStyle: 'preserve-3d',
+          transition: 'transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1)',
+          transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+        }}>
+          {/* FRONT — Answer side */}
+          <div style={{
+            background: C.warm,
+            borderRadius,
+            padding,
+            borderLeft: `${borderWidth} solid ${accentColor}`,
+            backfaceVisibility: 'hidden',
+            WebkitBackfaceVisibility: 'hidden',
+            position: flipped ? 'absolute' : 'relative',
+            width: '100%',
+            top: 0, left: 0,
+            boxSizing: 'border-box',
+          }}>
+            {showAuthor && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <p style={{ fontSize: 12, color: accentColor, fontWeight: 600 }}>
+                  {checkIn.profiles?.display_name || 'Anonymous'} {isMine && '(you)'}
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 9, color: C.brownM, opacity: 0.5, letterSpacing: '0.05em' }}>
+                    ↻ tap
+                  </span>
+                  {isMine && (
+                    <EntryActionsMenu
+                      onEdit={() => setEditing(true)}
+                      onDelete={() => setConfirmDelete(true)}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+            {!showAuthor && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                <p style={{ fontSize: 11, color: C.brownM }}>
+                  {checkIn.profiles?.display_name} · {checkIn.check_in_date}
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 9, color: C.brownM, opacity: 0.5, letterSpacing: '0.05em' }}>
+                    ↻ tap
+                  </span>
+                  {isMine && (
+                    <EntryActionsMenu
+                      onEdit={() => setEditing(true)}
+                      onDelete={() => setConfirmDelete(true)}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+            <p style={{ fontSize: compact ? 13 : 14, color: C.brown, lineHeight: 1.6 }}>
+              {checkIn.answer}
+            </p>
+          </div>
+
+          {/* BACK — Question side */}
+          <div style={{
+            background: `linear-gradient(135deg, ${accentColor}15, ${accentColor}08)`,
+            borderRadius,
+            padding,
+            borderLeft: `${borderWidth} solid ${accentColor}`,
+            backfaceVisibility: 'hidden',
+            WebkitBackfaceVisibility: 'hidden',
+            transform: 'rotateY(180deg)',
+            position: 'absolute',
+            width: '100%',
+            top: 0, left: 0,
+            boxSizing: 'border-box',
+            minHeight: compact ? 70 : 80,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+          }}>
+            <p style={{
+              fontSize: 10, color: accentColor, textTransform: 'uppercase',
+              letterSpacing: '0.1em', marginBottom: 6, fontWeight: 600,
+            }}>
+              Question · {checkIn.category}
+            </p>
+            <p style={{
+              fontFamily: "'Playfair Display', serif",
+              fontStyle: 'italic',
+              fontSize: compact ? 14 : 15,
+              color: C.brown, lineHeight: 1.5,
+            }}>
+              {checkIn.question_text}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete this reflection?"
+          message="This will permanently remove it from your garden. This can't be undone."
+          confirmLabel="Delete"
+          onConfirm={handleDelete}
+          onClose={() => !busy && setConfirmDelete(false)}
+          busy={busy}
+        />
+      )}
+    </>
   );
 }
 
@@ -1006,6 +1183,18 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
   useEffect(() => {
     if (garden?.id) db.getTodayCheckIns(garden.id).then(setTodayIns);
   }, [garden?.id, justDone]);
+
+  // Content still loading from Supabase — render a gentle placeholder
+  if (!question || !inspiration) {
+    return (
+      <div style={{
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: C.brownM, fontFamily: "'Lora', serif", fontSize: 13, opacity: 0.7,
+      }}>
+        Loading today's garden…
+      </div>
+    );
+  }
 
   const myCheckIn = todayIns.find(c => c.user_id === user.id);
   const otherCheckIns = todayIns.filter(c => c.user_id !== user.id);
@@ -1139,6 +1328,8 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
               checkIn={ci}
               isMine={ci.user_id === user.id}
               showAuthor={true}
+              onUpdated={(updated) => setTodayIns(prev => prev.map(c => c.id === updated.id ? updated : c))}
+              onDeleted={(id) => setTodayIns(prev => prev.filter(c => c.id !== id))}
             />
           ))}
         </div>
@@ -1255,6 +1446,8 @@ function GardenTab({ user, gardenName, stats, gardenId }) {
               isMine={h.user_id === user?.id}
               showAuthor={false}
               compact={true}
+              onUpdated={(updated) => setHistory(prev => prev.map(c => c.id === updated.id ? updated : c))}
+              onDeleted={(id) => setHistory(prev => prev.filter(c => c.id !== id))}
             />
           ))}
         </div>
@@ -1271,6 +1464,9 @@ function NotesTab({ user, garden }) {
   const [text, setText] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [deleteId, setDeleteId] = useState(null);
 
   useEffect(() => {
     if (garden?.id) {
@@ -1292,6 +1488,41 @@ function NotesTab({ user, garden }) {
     setBusy(false);
   };
 
+  const startEdit = (note) => {
+    setEditingId(note.id);
+    setEditText(note.content);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const saveEdit = async () => {
+    const trimmed = editText.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      const updated = await db.updateNote(editingId, trimmed);
+      setNotes(prev => prev.map(n => n.id === updated.id ? updated : n));
+      setEditingId(null);
+      setEditText('');
+    } catch (e) { alert('Could not save: ' + e.message); }
+    setBusy(false);
+  };
+
+  const confirmDelete = async () => {
+    setBusy(true);
+    try {
+      await db.deleteNote(deleteId);
+      setNotes(prev => prev.filter(n => n.id !== deleteId));
+      setDeleteId(null);
+    } catch (e) {
+      alert('Could not delete: ' + e.message);
+    }
+    setBusy(false);
+  };
+
   const placeholder = garden.type === 'solo'
     ? 'A note to yourself...'
     : `Write something for your garden...`;
@@ -1310,7 +1541,7 @@ function NotesTab({ user, garden }) {
           rows={3} style={{ ...inputStyle, resize: 'none', lineHeight: 1.6, fontSize: 14, marginBottom: 10 }} />
         <button onClick={send} disabled={!text.trim() || busy}
           style={{ ...btn.primary, opacity: text.trim() ? 1 : 0.4 }}>
-          {busy ? 'Sending...' : 'Leave Note 💌'}
+          {busy && !editingId && !deleteId ? 'Sending...' : 'Leave Note 💌'}
         </button>
       </div>
 
@@ -1324,14 +1555,57 @@ function NotesTab({ user, garden }) {
       {notes.length > 0 && (
         <div>
           <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Previous notes</p>
-          {notes.map(n => (
-            <div key={n.id} style={{ background: C.warm, borderRadius: 12, padding: '12px 16px', marginBottom: 8, borderLeft: `3px solid ${n.from_user_id === user.id ? C.terra : C.sage}` }}>
-              <p style={{ fontSize: 14, color: C.brown, lineHeight: 1.6, marginBottom: 4 }}>{n.content}</p>
-              <p style={{ fontSize: 10, color: C.brownM, opacity: 0.6 }}>
-                {n.profiles?.display_name || 'You'} · {new Date(n.created_at).toLocaleDateString()}
-              </p>
-            </div>
-          ))}
+          {notes.map(n => {
+            const isMine = n.from_user_id === user.id;
+            const accent = isMine ? C.terra : C.sage;
+
+            // Edit mode for this note
+            if (editingId === n.id) {
+              return (
+                <div key={n.id} style={{ background: C.warm, borderRadius: 12, padding: '12px 16px', marginBottom: 8, borderLeft: `3px solid ${accent}` }}>
+                  <p style={{ fontSize: 10, color: accent, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                    Editing your note
+                  </p>
+                  <textarea
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    rows={3}
+                    autoFocus
+                    style={{ ...inputStyle, resize: 'none', lineHeight: 1.6, fontSize: 14, marginBottom: 10 }}
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={cancelEdit} disabled={busy}
+                      style={{ ...btn.secondary, padding: '8px 14px', fontSize: 12, flex: 1 }}>
+                      Cancel
+                    </button>
+                    <button onClick={saveEdit} disabled={busy || !editText.trim()}
+                      style={{ ...btn.primary, padding: '8px 14px', fontSize: 12, flex: 1, opacity: (busy || !editText.trim()) ? 0.5 : 1 }}>
+                      {busy ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={n.id} style={{ background: C.warm, borderRadius: 12, padding: '12px 16px', marginBottom: 8, borderLeft: `3px solid ${accent}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <p style={{ fontSize: 14, color: C.brown, lineHeight: 1.6, marginBottom: 4, flex: 1, paddingRight: 8 }}>
+                    {n.content}
+                  </p>
+                  {isMine && (
+                    <EntryActionsMenu
+                      onEdit={() => startEdit(n)}
+                      onDelete={() => setDeleteId(n.id)}
+                    />
+                  )}
+                </div>
+                <p style={{ fontSize: 10, color: C.brownM, opacity: 0.6 }}>
+                  {n.profiles?.display_name || 'You'} · {new Date(n.created_at).toLocaleDateString()}
+                </p>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1340,6 +1614,17 @@ function NotesTab({ user, garden }) {
           <span style={{ fontSize: 36, opacity: 0.3 }}>💌</span>
           <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>No notes yet. Write the first one!</p>
         </div>
+      )}
+
+      {deleteId && (
+        <ConfirmDialog
+          title="Delete this note?"
+          message="This will permanently remove your note from the garden. This can't be undone."
+          confirmLabel="Delete"
+          onConfirm={confirmDelete}
+          onClose={() => !busy && setDeleteId(null)}
+          busy={busy}
+        />
       )}
     </div>
   );
@@ -1352,6 +1637,9 @@ function MomentsTab({ user, garden }) {
   const [moments, setMoments] = useState([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [deleteId, setDeleteId] = useState(null);
 
   useEffect(() => {
     if (garden?.id) db.getMoments(garden.id).then(setMoments);
@@ -1365,6 +1653,41 @@ function MomentsTab({ user, garden }) {
       setText('');
       db.getMoments(garden.id).then(setMoments);
     } catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+
+  const startEdit = (moment) => {
+    setEditingId(moment.id);
+    setEditText(moment.title);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const saveEdit = async () => {
+    const trimmed = editText.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      const updated = await db.updateMoment(editingId, trimmed);
+      setMoments(prev => prev.map(m => m.id === updated.id ? updated : m));
+      setEditingId(null);
+      setEditText('');
+    } catch (e) { alert('Could not save: ' + e.message); }
+    setBusy(false);
+  };
+
+  const confirmDelete = async () => {
+    setBusy(true);
+    try {
+      await db.deleteMoment(deleteId);
+      setMoments(prev => prev.filter(m => m.id !== deleteId));
+      setDeleteId(null);
+    } catch (e) {
+      alert('Could not delete: ' + e.message);
+    }
     setBusy(false);
   };
 
@@ -1386,15 +1709,53 @@ function MomentsTab({ user, garden }) {
       {moments.length > 0 ? (
         <div style={{ paddingLeft: 22, position: 'relative' }}>
           <div style={{ position: 'absolute', left: 6, top: 4, bottom: 4, width: 2, background: `linear-gradient(180deg, ${C.terra}, ${C.sageL})`, borderRadius: 1, opacity: 0.25 }} />
-          {moments.map((m, i) => (
-            <div key={m.id} style={{ position: 'relative', marginBottom: 18, paddingLeft: 14 }}>
-              <div style={{ position: 'absolute', left: -19, top: 5, width: 10, height: 10, borderRadius: '50%', background: i === 0 ? C.terra : C.terraL, border: `2px solid ${C.warm}` }} />
-              <p style={{ fontSize: 14, color: C.brown, lineHeight: 1.5, marginBottom: 2 }}>{m.title}</p>
-              <p style={{ fontSize: 10, color: C.brownM, opacity: 0.6 }}>
-                {m.profiles?.display_name} · {m.moment_date}
-              </p>
-            </div>
-          ))}
+          {moments.map((m, i) => {
+            const isMine = m.created_by === user.id;
+
+            // Edit mode for this moment
+            if (editingId === m.id) {
+              return (
+                <div key={m.id} style={{ position: 'relative', marginBottom: 18, paddingLeft: 14 }}>
+                  <div style={{ position: 'absolute', left: -19, top: 5, width: 10, height: 10, borderRadius: '50%', background: i === 0 ? C.terra : C.terraL, border: `2px solid ${C.warm}` }} />
+                  <input
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && saveEdit()}
+                    autoFocus
+                    style={{ ...inputStyle, fontSize: 14, marginBottom: 8, padding: '10px 12px' }}
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={cancelEdit} disabled={busy}
+                      style={{ ...btn.secondary, padding: '6px 12px', fontSize: 12, flex: 1 }}>
+                      Cancel
+                    </button>
+                    <button onClick={saveEdit} disabled={busy || !editText.trim()}
+                      style={{ ...btn.primary, padding: '6px 12px', fontSize: 12, flex: 1, opacity: (busy || !editText.trim()) ? 0.5 : 1 }}>
+                      {busy ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={m.id} style={{ position: 'relative', marginBottom: 18, paddingLeft: 14 }}>
+                <div style={{ position: 'absolute', left: -19, top: 5, width: 10, height: 10, borderRadius: '50%', background: i === 0 ? C.terra : C.terraL, border: `2px solid ${C.warm}` }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                  <p style={{ fontSize: 14, color: C.brown, lineHeight: 1.5, marginBottom: 2, flex: 1 }}>{m.title}</p>
+                  {isMine && (
+                    <EntryActionsMenu
+                      onEdit={() => startEdit(m)}
+                      onDelete={() => setDeleteId(m.id)}
+                    />
+                  )}
+                </div>
+                <p style={{ fontSize: 10, color: C.brownM, opacity: 0.6 }}>
+                  {m.profiles?.display_name} · {m.moment_date}
+                </p>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div style={{ textAlign: 'center', padding: '36px 20px' }}>
@@ -1402,6 +1763,192 @@ function MomentsTab({ user, garden }) {
           <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>Start capturing daily Goals</p>
         </div>
       )}
+
+      {deleteId && (
+        <ConfirmDialog
+          title="Delete this goal?"
+          message="This will permanently remove it from your timeline. This can't be undone."
+          confirmLabel="Delete"
+          onConfirm={confirmDelete}
+          onClose={() => !busy && setDeleteId(null)}
+          busy={busy}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENTRY ACTIONS MENU — the (i) icon + Edit / Delete popup
+// ═══════════════════════════════════════════════════════════════
+function EntryActionsMenu({ onEdit, onDelete }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = () => setOpen(false);
+    // Delay attaching so the current click doesn't immediately close it
+    const timer = setTimeout(() => document.addEventListener('click', handleClickOutside), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [open]);
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        aria-label="Entry options"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 4,
+          cursor: 'pointer',
+          color: C.brownM,
+          opacity: 0.55,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 6,
+          transition: 'opacity 0.2s',
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.55'}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            right: 0,
+            marginTop: 4,
+            background: '#fff',
+            borderRadius: 10,
+            boxShadow: '0 8px 24px rgba(46,36,28,0.15), 0 2px 6px rgba(46,36,28,0.08)',
+            border: `1px solid ${C.bgDeep}`,
+            minWidth: 130,
+            zIndex: 50,
+            overflow: 'hidden',
+            animation: 'fadeIn 0.15s ease',
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }}
+            style={{
+              width: '100%', padding: '10px 14px',
+              background: 'transparent', border: 'none',
+              display: 'flex', alignItems: 'center', gap: 8,
+              cursor: 'pointer', fontSize: 13, color: C.brown,
+              fontFamily: "'Lora', serif", textAlign: 'left',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = C.bgDeep}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Edit
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }}
+            style={{
+              width: '100%', padding: '10px 14px',
+              background: 'transparent', border: 'none',
+              display: 'flex', alignItems: 'center', gap: 8,
+              cursor: 'pointer', fontSize: 13, color: '#B4483B',
+              fontFamily: "'Lora', serif", textAlign: 'left',
+              borderTop: `1px solid ${C.bgDeep}`,
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f0'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIRM DIALOG — "Are you sure?" modal for destructive actions
+// ═══════════════════════════════════════════════════════════════
+function ConfirmDialog({ title, message, confirmLabel = 'Delete', onConfirm, onClose, busy }) {
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(46,36,28,0.5)',
+      backdropFilter: 'blur(4px)', zIndex: 300,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 20, animation: 'fadeIn 0.2s ease',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: C.warm, borderRadius: 18,
+        padding: 24, maxWidth: 360, width: '100%',
+        boxShadow: '0 20px 60px rgba(46,36,28,0.25)',
+        animation: 'scaleIn 0.25s cubic-bezier(0.22,1,0.36,1)',
+      }}>
+        <h3 style={{
+          fontFamily: "'Playfair Display', serif", fontSize: 18,
+          fontWeight: 500, color: C.brown, marginBottom: 8,
+        }}>
+          {title}
+        </h3>
+        <p style={{
+          fontSize: 14, color: C.brownM, lineHeight: 1.5,
+          marginBottom: 20, fontFamily: "'Lora', serif",
+        }}>
+          {message}
+        </p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              ...btn.secondary,
+              flex: 1,
+              opacity: busy ? 0.5 : 1,
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={busy}
+            style={{
+              flex: 1,
+              background: '#B4483B',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 14,
+              padding: '12px 20px',
+              fontSize: 14,
+              cursor: busy ? 'not-allowed' : 'pointer',
+              fontFamily: "'Lora', serif",
+              opacity: busy ? 0.6 : 1,
+              transition: 'all 0.2s',
+              boxShadow: '0 4px 14px rgba(180,72,59,0.2)',
+            }}
+          >
+            {busy ? '...' : confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
