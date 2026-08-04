@@ -56,10 +56,16 @@ export function todayDateStr() {
   return new Date().toISOString().split('T')[0];
 }
 
-// Global day counter (same for everyone on the same date).
-// Uses UTC. Rotation shifts at 00:00 UTC.
+// Local-timezone day counter.
+// Each device rotates at its own midnight, so Cologne users and
+// Guatemala users each see "today's" question aligned to their real day.
+// Two people in very different timezones may see different questions
+// during the overlap window around midnight — this is intentional.
 function dayIndex() {
-  return Math.floor(Date.now() / 86400000);
+  const now = new Date();
+  // Use LOCAL calendar components (getFullYear/getMonth/getDate),
+  // then anchor to UTC to produce a stable integer day count.
+  return Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
 }
 
 // Language field picker with EN fallback.
