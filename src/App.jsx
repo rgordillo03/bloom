@@ -978,9 +978,12 @@ function CheckInFlipCard({
   // Lifted state — controlled by parent so only one card is open at a time.
   isEditing = false, isConfirmingDelete = false,
   onOpenEdit, onOpenDelete, onCloseActions,
+  // When true, card starts on the QUESTION side; tap to reveal the answer.
+  // Used by GardenTab so browsing history feels like a journal prompt.
+  defaultShowQuestion = false,
   t,
 }) {
-  const [flipped, setFlipped] = useState(false);
+  const [flipped, setFlipped] = useState(defaultShowQuestion);
   const [editText, setEditText] = useState(checkIn.answer);
   const [busy, setBusy] = useState(false);
   const accentColor = isMine ? C.terra : C.sage;
@@ -1496,6 +1499,7 @@ function GardenTab({ user, gardenName, stats, gardenId, t }) {
               isMine={h.user_id === user?.id}
               showAuthor={false}
               compact={true}
+              defaultShowQuestion={true}
               t={t}
               isEditing={activeCardId === h.id && activeCardMode === 'edit'}
               isConfirmingDelete={activeCardId === h.id && activeCardMode === 'delete'}
