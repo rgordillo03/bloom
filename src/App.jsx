@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabase.js';
 import { getTodayContent, GARDEN_TYPES, LANGUAGES } from './lib/content.js';
+import { useT } from './lib/useT.js';
 import * as db from './lib/db.js';
 
 // ─── COLORS ─────────────────────────────────────────────────
@@ -115,13 +116,16 @@ export default function App() {
 // SPLASH
 // ═══════════════════════════════════════════════════════════════
 function SplashScreen() {
+  const browserLang = (typeof navigator !== 'undefined' ? (navigator.language || 'en').slice(0, 2) : 'en');
+  const initialLang = ['en', 'de', 'es'].includes(browserLang) ? browserLang : 'en';
+  const t = useT(initialLang);
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: C.bg }}>
       <div style={{ animation: 'gentleFloat 2s ease-in-out infinite' }}>
         <BloomIcon size={56} />
       </div>
       <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 400, color: C.brown, marginTop: 16, letterSpacing: '0.06em' }}>bloom</h1>
-      <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 6 }}>tending your gardens...</p>
+      <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 6 }}>{t.today.loading}</p>
     </div>
   );
 }
@@ -136,6 +140,11 @@ function AuthScreen() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Browser language detection — before user has a profile.
+  const browserLang = (typeof navigator !== 'undefined' ? (navigator.language || 'en').slice(0, 2) : 'en');
+  const initialLang = ['en', 'de', 'es'].includes(browserLang) ? browserLang : 'en';
+  const t = useT(initialLang);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -159,61 +168,61 @@ function AuthScreen() {
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', background: `linear-gradient(180deg, ${C.bg}, ${C.bgDeep})` }}>
       <BloomIcon size={48} />
       <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 500, color: C.brown, margin: '16px 0 8px' }}>
-        Welcome to <em style={{ color: C.terra }}>Bloom</em>
+        {t.auth.welcomeTitle} <em style={{ color: C.terra }}>Bloom</em>
       </h1>
       <p style={{ fontSize: 14, color: C.brownL, textAlign: 'center', maxWidth: 320, marginBottom: 32, lineHeight: 1.6 }}>
-        Tend your love, one tap at a time.
+        {t.auth.tagline}
       </p>
 
       {!mode && !sent && (
         <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeUp 0.4s ease' }}>
-          <button onClick={() => setMode('signup')} style={btn.primary}>🌱 Create New Account</button>
-          <button onClick={() => setMode('login')} style={btn.secondary}>🔑 Log In</button>
+          <button onClick={() => setMode('signup')} style={btn.primary}>{t.auth.createNewAccount}</button>
+          <button onClick={() => setMode('login')} style={btn.secondary}>{t.auth.logIn}</button>
         </div>
       )}
 
       {mode === 'signup' && !sent && (
         <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320, animation: 'fadeUp 0.4s ease' }}>
           <p style={{ fontSize: 13, color: C.terra, fontWeight: 600, textAlign: 'center', marginBottom: 18, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Create Your Account
+            {t.auth.createTitle}
           </p>
-          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>Your name</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Rafael" style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
-          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" style={{ ...inputStyle, marginBottom: 8 }} />
+          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>{t.auth.yourName}</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder={t.auth.yourNamePlaceholder} style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
+          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>{t.auth.email}</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t.auth.emailPlaceholder} style={{ ...inputStyle, marginBottom: 8 }} />
           {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 8 }}>{error}</p>}
-          <p style={{ fontSize: 11, color: C.brownM, opacity: 0.6, marginBottom: 20 }}>We'll send you a magic link — no password needed</p>
+          <p style={{ fontSize: 11, color: C.brownM, opacity: 0.6, marginBottom: 20 }}>{t.auth.magicLinkHintSignup}</p>
           <button type="submit" disabled={busy || !email || !name} style={{ ...btn.primary, opacity: email && name ? 1 : 0.4 }}>
-            {busy ? 'Sending...' : 'Sign Up ✨'}
+            {busy ? t.auth.sending : t.auth.signUpButton}
           </button>
-          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>← Back</button>
+          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>{t.auth.backButton}</button>
         </form>
       )}
 
       {mode === 'login' && !sent && (
         <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320, animation: 'fadeUp 0.4s ease' }}>
           <p style={{ fontSize: 13, color: C.terra, fontWeight: 600, textAlign: 'center', marginBottom: 18, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Welcome Back
+            {t.auth.welcomeBack}
           </p>
-          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
+          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>{t.auth.email}</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t.auth.emailPlaceholder} style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
           {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 8 }}>{error}</p>}
-          <p style={{ fontSize: 11, color: C.brownM, opacity: 0.6, marginBottom: 20 }}>We'll send you a magic link to sign in</p>
+          <p style={{ fontSize: 11, color: C.brownM, opacity: 0.6, marginBottom: 20 }}>{t.auth.magicLinkHint}</p>
           <button type="submit" disabled={busy || !email} style={{ ...btn.primary, opacity: email ? 1 : 0.4 }}>
-            {busy ? 'Sending...' : 'Send Magic Link ✨'}
+            {busy ? t.auth.sending : t.auth.magicLinkButton}
           </button>
-          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>← Back</button>
+          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>{t.auth.backButton}</button>
         </form>
       )}
 
       {sent && (
         <div style={{ textAlign: 'center', maxWidth: 320, animation: 'scaleIn 0.4s ease' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📬</div>
-          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, color: C.brown, marginBottom: 8 }}>Check your email!</h2>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, color: C.brown, marginBottom: 8 }}>{t.auth.magicLinkSent}</h2>
           <p style={{ fontSize: 14, color: C.brownL, lineHeight: 1.6 }}>
-            We sent a magic link to <strong>{email}</strong>.
+            {t.auth.magicLinkSentDesc} <strong>{email}</strong>.
           </p>
-          <button onClick={reset} style={{ ...btn.secondary, marginTop: 20, width: 'auto', padding: '10px 20px' }}>Use a different email</button>
+          <button onClick={reset} style={{ ...btn.secondary, marginTop: 20, width: 'auto', padding: '10px 20px' }}>{t.auth.useDifferentEmail}</button>
         </div>
       )}
     </div>
@@ -232,6 +241,7 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
   const [pendingCounts, setPendingCounts] = useState({});
   const [content, setContent] = useState({ question: null, inspiration: null });
   const language = profile?.language || 'en';
+  const t = useT(language);
 
   // Fetch today's question + inspiration from Supabase whenever
   // the active garden or the user's language changes.
@@ -284,7 +294,7 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
             <span style={{ fontSize: 22 }}>{meta.icon}</span>
             <div style={{ textAlign: 'left' }}>
               <p style={{ fontSize: 9, color: C.brownM, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 1 }}>
-                {meta.label} garden
+                {t.create[activeGarden.type] || meta.label}
               </p>
               <p style={{ fontSize: 14, color: C.brown, fontWeight: 500 }}>{activeGarden.name}</p>
             </div>
@@ -300,13 +310,13 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
         {tab === 'today' && (
           <TodayTab user={user} profile={profile} garden={activeGarden}
             question={question} inspiration={inspiration} stats={stats}
-            pendingRequests={pendingForActive}
+            pendingRequests={pendingForActive} t={t}
             onCheckIn={() => db.getGardenStats(activeGarden.id).then(setStats)}
             onShowSettings={() => setShowSettings(true)} />
         )}
-        {tab === 'garden' && <GardenTab user={user} gardenName={activeGarden.name} stats={stats} gardenId={activeGarden.id} />}
-        {tab === 'notes' && <NotesTab user={user} garden={activeGarden} />}
-        {tab === 'moments' && <MomentsTab user={user} garden={activeGarden} />}
+        {tab === 'garden' && <GardenTab user={user} gardenName={activeGarden.name} stats={stats} gardenId={activeGarden.id} t={t} />}
+        {tab === 'notes' && <NotesTab user={user} garden={activeGarden} t={t} />}
+        {tab === 'moments' && <MomentsTab user={user} garden={activeGarden} t={t} />}
       </div>
 
       {/* Bottom navigation */}
@@ -318,19 +328,19 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
         zIndex: 100,
       }}>
         {[
-          { id: 'today', label: 'Today', icon: '☀️' },
-          { id: 'garden', label: 'Garden', icon: '🌱' },
-          { id: 'notes', label: 'Notes', icon: '💌' },
-          { id: 'moments', label: 'Goals', icon: '🏆' },
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
+          { id: 'today', label: t.tabs.today, icon: '☀️' },
+          { id: 'garden', label: t.tabs.garden, icon: '🌱' },
+          { id: 'notes', label: t.tabs.notes, icon: '💌' },
+          { id: 'moments', label: t.tabs.goals, icon: '🏆' },
+        ].map(tab_ => (
+          <button key={tab_.id} onClick={() => setTab(tab_.id)} style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             background: 'none', border: 'none', padding: '6px 14px',
-            color: tab === t.id ? C.terra : C.brownM,
+            color: tab === tab_.id ? C.terra : C.brownM,
             fontFamily: "'Lora', serif", fontSize: 10, gap: 2,
           }}>
-            <span style={{ fontSize: 18 }}>{t.icon}</span>
-            <span style={{ fontWeight: tab === t.id ? 600 : 400 }}>{t.label}</span>
+            <span style={{ fontSize: 18 }}>{tab_.icon}</span>
+            <span style={{ fontWeight: tab === tab_.id ? 600 : 400 }}>{tab_.label}</span>
           </button>
         ))}
       </nav>
@@ -347,12 +357,14 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
           user={user}
           profile={profile}
           onRefreshProfile={onRefreshProfile}
+          t={t}
         />
       )}
 
       {showCreate && (
         <CreateGardenModal
           user={user}
+          t={t}
           onCreated={async () => {
             setShowCreate(false);
             const newGardens = await onRefreshGardens();
@@ -372,6 +384,7 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
         <GardenSettingsModal
           user={user}
           garden={activeGarden}
+          t={t}
           onRefreshRequests={() => db.getMyPendingRequestCounts(user.id).then(setPendingCounts)}
           onUpdated={async () => {
             await onRefreshGardens();
@@ -394,7 +407,7 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
 // ═══════════════════════════════════════════════════════════════
 // GARDEN SWITCHER MODAL
 // ═══════════════════════════════════════════════════════════════
-function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSignOut, user, profile, onRefreshProfile }) {
+function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSignOut, user, profile, onRefreshProfile, t }) {
   const currentLang = profile?.language || 'en';
   const [switching, setSwitching] = useState(false);
   const handleLangChange = async (code) => {
@@ -405,7 +418,7 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
       if (onRefreshProfile) await onRefreshProfile();
     } catch (e) {
       console.error('Language update failed', e);
-      alert('Could not change language. Try again.');
+      alert(t.errors.couldNotChangeLanguage);
     }
     setSwitching(false);
   };
@@ -424,7 +437,7 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
       }}>
         <div style={{ width: 40, height: 4, background: C.bgDeep, borderRadius: 2, margin: '0 auto 20px' }} />
         <p style={{ fontSize: 11, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14, textAlign: 'center' }}>
-          Switch garden
+          {t.switcher.switchGarden}
         </p>
 
         {gardens.map(g => {
@@ -442,7 +455,7 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
                 <span style={{ fontSize: 24 }}>{meta.icon}</span>
                 <div>
                   <p style={{ fontSize: 14, color: C.brown, fontWeight: 500, marginBottom: 2 }}>{g.name}</p>
-                  <p style={{ fontSize: 11, color: C.brownM }}>{meta.label}</p>
+                  <p style={{ fontSize: 11, color: C.brownM }}>{t.create[g.type] || meta.label}</p>
                 </div>
               </div>
               {isActive && (
@@ -460,13 +473,13 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
           color: C.terra, cursor: 'pointer', fontFamily: "'Lora', serif",
           fontSize: 14, fontWeight: 500,
         }}>
-          + Plant a new garden
+          {t.switcher.createNew}
         </button>
 
         {/* ─── Language switcher ─── */}
         <div style={{ marginTop: 20 }}>
           <p style={{ fontSize: 11, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, textAlign: 'center' }}>
-            Language
+            {t.switcher.language}
           </p>
           <div style={{ display: 'flex', gap: 6, background: C.warm, borderRadius: 12, padding: 4 }}>
             {LANGUAGES.map(lng => {
@@ -496,7 +509,7 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
           fontSize: 12, marginTop: 16, cursor: 'pointer',
           padding: 10, width: '100%', fontFamily: "'Lora', serif",
         }}>
-          Sign out
+          {t.switcher.signOut}
         </button>
       </div>
     </div>
@@ -506,7 +519,7 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
 // ═══════════════════════════════════════════════════════════════
 // CREATE GARDEN MODAL
 // ═══════════════════════════════════════════════════════════════
-function CreateGardenModal({ user, onCreated, onClose }) {
+function CreateGardenModal({ user, onCreated, onClose, t }) {
   const [step, setStep] = useState('choose'); // 'choose', 'create', 'join'
   const [type, setType] = useState(null);
   const [name, setName] = useState('');
@@ -553,10 +566,10 @@ function CreateGardenModal({ user, onCreated, onClose }) {
         {step === 'choose' && (
           <>
             <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, textAlign: 'center', marginBottom: 6 }}>
-              Plant a new garden
+              {t.create.title}
             </h2>
             <p style={{ fontSize: 13, color: C.brownM, textAlign: 'center', marginBottom: 24 }}>
-              Start a new garden, or join one with an invite code
+              {t.create.subtitle}
             </p>
 
             <button onClick={() => { setStep('create'); setType('couple'); }} style={{
@@ -567,8 +580,8 @@ function CreateGardenModal({ user, onCreated, onClose }) {
             }}>
               <span style={{ fontSize: 32 }}>💑</span>
               <div>
-                <p style={{ fontSize: 15, color: C.brown, fontWeight: 600, marginBottom: 2 }}>Couple Garden</p>
-                <p style={{ fontSize: 12, color: C.brownM }}>For you and your partner</p>
+                <p style={{ fontSize: 15, color: C.brown, fontWeight: 600, marginBottom: 2 }}>{t.create.couple}</p>
+                <p style={{ fontSize: 12, color: C.brownM }}>{t.create.coupleDesc}</p>
               </div>
             </button>
 
@@ -580,26 +593,26 @@ function CreateGardenModal({ user, onCreated, onClose }) {
             }}>
               <span style={{ fontSize: 32 }}>🤝</span>
               <div>
-                <p style={{ fontSize: 15, color: C.brown, fontWeight: 600, marginBottom: 2 }}>Group Garden</p>
-                <p style={{ fontSize: 12, color: C.brownM }}>For family, friends, chosen family</p>
+                <p style={{ fontSize: 15, color: C.brown, fontWeight: 600, marginBottom: 2 }}>{t.create.group}</p>
+                <p style={{ fontSize: 12, color: C.brownM }}>{t.create.groupDesc}</p>
               </div>
             </button>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 16px' }}>
               <div style={{ flex: 1, height: 1, background: C.bgDeep }} />
-              <span style={{ fontSize: 11, color: C.brownM, textTransform: 'uppercase', letterSpacing: '0.08em' }}>or</span>
+              <span style={{ fontSize: 11, color: C.brownM, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t.common.or || 'or'}</span>
               <div style={{ flex: 1, height: 1, background: C.bgDeep }} />
             </div>
 
             <button onClick={() => setStep('join')} style={btn.secondary}>
-              Join with invite code
+              {t.create.joinWithCode}
             </button>
 
             <button onClick={onClose} style={{
               background: 'none', border: 'none', color: C.brownM, fontSize: 12,
               marginTop: 14, cursor: 'pointer', padding: 8, width: '100%',
               fontFamily: "'Lora', serif",
-            }}>Cancel</button>
+            }}>{t.common.cancel}</button>
           </>
         )}
 
@@ -610,17 +623,17 @@ function CreateGardenModal({ user, onCreated, onClose }) {
               background: 'none', border: 'none', color: C.brownM,
               fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 16,
               fontFamily: "'Lora', serif",
-            }}>← Back</button>
+            }}>{t.create.backButton}</button>
             <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, textAlign: 'center', marginBottom: 6 }}>
-              {GARDEN_TYPES[type].icon} Name your {GARDEN_TYPES[type].label.toLowerCase()} garden
+              {type === 'couple' ? t.create.nameCoupleGarden : t.create.nameGroupGarden}
             </h2>
             <p style={{ fontSize: 13, color: C.brownM, textAlign: 'center', marginBottom: 20 }}>
-              {type === 'couple' ? 'Like "Rafael & Ronja" or "Us"' : 'Like "Family", "The Crew", "Best Friends Forever"'}
+              {type === 'couple' ? t.create.hintCouple : t.create.hintGroup}
             </p>
 
             <input
               value={name} onChange={e => setName(e.target.value)}
-              placeholder={type === 'couple' ? 'Rafael & Ronja' : 'Family Garden'}
+              placeholder={type === 'couple' ? t.create.gardenNamePlaceholderCouple : t.create.gardenNamePlaceholderGroup}
               style={{ ...inputStyle, marginBottom: 16, textAlign: 'center', fontFamily: "'Playfair Display', serif", fontSize: 18 }}
               autoFocus
               onKeyDown={e => e.key === 'Enter' && name.trim() && handleCreate()}
@@ -629,7 +642,7 @@ function CreateGardenModal({ user, onCreated, onClose }) {
 
             <button onClick={handleCreate} disabled={!name.trim() || busy}
               style={{ ...btn.primary, opacity: name.trim() ? 1 : 0.4 }}>
-              {busy ? 'Planting...' : 'Plant Garden 🌱'}
+              {busy ? t.create.planting : t.create.plantButton}
             </button>
           </>
         )}
@@ -640,10 +653,10 @@ function CreateGardenModal({ user, onCreated, onClose }) {
             <div style={{ textAlign: 'center', animation: 'scaleIn 0.4s ease' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>🌸</div>
               <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 500, color: C.brown, marginBottom: 8 }}>
-                Garden planted!
+                {t.create.plantedTitle}
               </h2>
               <p style={{ fontSize: 13, color: C.brownL, marginBottom: 20 }}>
-                Share this code to invite {type === 'couple' ? 'your partner' : 'others'}:
+                {type === 'couple' ? t.create.sharePartner : t.create.shareOthers}
               </p>
               <div style={{
                 background: C.warm, borderRadius: 16, padding: '20px 24px',
@@ -655,12 +668,12 @@ function CreateGardenModal({ user, onCreated, onClose }) {
               </div>
               <button onClick={() => {
                 navigator.clipboard?.writeText(createdGarden.invite_code);
-                navigator.share?.({ text: `Join my Bloom garden! Use code: ${createdGarden.invite_code}\n\nOpen: ${window.location.origin}` }).catch(() => {});
+                navigator.share?.({ text: t.fill(t.create.shareText, { code: createdGarden.invite_code, url: window.location.origin }) }).catch(() => {});
               }} style={{ ...btn.secondary, marginBottom: 10 }}>
-                Share Code 📤
+                {t.create.shareCode}
               </button>
               <button onClick={onCreated} style={btn.primary}>
-                Continue to Garden →
+                {t.create.continueToGarden}
               </button>
             </div>
           </>
@@ -673,18 +686,18 @@ function CreateGardenModal({ user, onCreated, onClose }) {
               background: 'none', border: 'none', color: C.brownM,
               fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 16,
               fontFamily: "'Lora', serif",
-            }}>← Back</button>
+            }}>{t.create.backButton}</button>
             <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, textAlign: 'center', marginBottom: 6 }}>
-              Join a garden
+              {t.create.joinTitle}
             </h2>
             <p style={{ fontSize: 13, color: C.brownM, textAlign: 'center', marginBottom: 20 }}>
-              Enter the 6-character invite code. The garden owner will approve your request.
+              {t.create.joinSubtitle}
             </p>
 
             <input
               value={code}
               onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-              placeholder="X7K9M2"
+              placeholder={t.create.inviteCodePlaceholder}
               maxLength={6}
               style={{ ...inputStyle, textAlign: 'center', fontSize: 22, letterSpacing: 6, fontFamily: "'Playfair Display', serif", marginBottom: 8 }}
               autoFocus
@@ -693,7 +706,7 @@ function CreateGardenModal({ user, onCreated, onClose }) {
 
             <button onClick={handleJoin} disabled={code.length < 6 || busy}
               style={{ ...btn.primary, marginTop: 12, opacity: code.length >= 6 ? 1 : 0.4 }}>
-              {busy ? 'Sending...' : 'Send Request 🌿'}
+              {busy ? t.create.sending : t.create.sendRequest}
             </button>
           </>
         )}
@@ -703,13 +716,13 @@ function CreateGardenModal({ user, onCreated, onClose }) {
           <div style={{ textAlign: 'center', animation: 'scaleIn 0.4s ease' }}>
             <div style={{ fontSize: 48, marginBottom: 16, animation: 'gentleFloat 2s ease-in-out infinite' }}>📨</div>
             <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, marginBottom: 10 }}>
-              Request sent!
+              {t.create.requestSentTitle}
             </h2>
             <p style={{ fontSize: 14, color: C.brownL, lineHeight: 1.6, marginBottom: 24, maxWidth: 280, marginLeft: 'auto', marginRight: 'auto' }}>
-              The owner of <strong style={{ color: C.brown }}>"{requestSent.gardenName}"</strong> will review your request soon. You'll see the garden appear when approved.
+              {t.fill(t.create.requestSentDesc, { name: requestSent.gardenName })}
             </p>
             <button onClick={onClose} style={btn.primary}>
-              Got it 🌱
+              {t.create.gotIt}
             </button>
           </div>
         )}
@@ -721,7 +734,7 @@ function CreateGardenModal({ user, onCreated, onClose }) {
 // ═══════════════════════════════════════════════════════════════
 // GARDEN SETTINGS MODAL
 // ═══════════════════════════════════════════════════════════════
-function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequests, onClose }) {
+function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequests, onClose, t }) {
   const [members, setMembers] = useState([]);
   const [requests, setRequests] = useState([]);
   const [name, setName] = useState(garden.name);
@@ -749,7 +762,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
   };
 
   const handleLeave = async () => {
-    if (!confirm(`Leave "${garden.name}"? You won't see its content anymore.`)) return;
+    if (!confirm(t.fill(t.settings.leaveConfirm, { name: garden.name }))) return;
     setBusy(true);
     try { await db.leaveGarden(user.id, garden.id); onLeft(); }
     catch (e) { alert(e.message); }
@@ -771,7 +784,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
   };
 
   const handleRemoveMember = async (memberId, memberName) => {
-    if (!confirm(`Remove ${memberName} from this garden? They won't see its content anymore.`)) return;
+    if (!confirm(t.fill(t.settings.removeMemberConfirm, { name: memberName }))) return;
     setBusy(true);
     try { await db.removeMember(garden.id, memberId); await reload(); }
     catch (e) { alert(e.message); }
@@ -793,18 +806,18 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <span style={{ fontSize: 32 }}>{GARDEN_TYPES[garden.type].icon}</span>
           <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, marginTop: 8 }}>
-            Garden Settings
+            {t.settings.title}
           </h2>
         </div>
 
         {isOwner && garden.type !== 'solo' && (
           <>
-            <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>Garden name</label>
+            <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>{t.settings.gardenName}</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
               <input value={name} onChange={e => setName(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
               <button onClick={handleRename} disabled={!name.trim() || name === garden.name || busy}
                 style={{ ...btn.primary, width: 'auto', padding: '14px 20px', opacity: (name.trim() && name !== garden.name) ? 1 : 0.4 }}>
-                Save
+                {t.settings.save}
               </button>
             </div>
           </>
@@ -819,7 +832,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
                 animation: 'pulse 2s ease-in-out infinite',
               }} />
               <p style={{ fontSize: 12, color: '#C04040', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
-                Pending requests ({requests.length})
+                {t.settings.pendingRequests} ({requests.length})
               </p>
             </div>
             <div style={{ marginBottom: 24 }}>
@@ -852,7 +865,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
                         border: `1px solid #C75050`, borderRadius: 10, padding: '8px 12px',
                         fontSize: 12, cursor: 'pointer', fontFamily: "'Lora', serif",
                       }}>
-                      Decline
+                      {t.settings.decline}
                     </button>
                     <button
                       onClick={() => handleApprove(r.id)} disabled={busy}
@@ -861,7 +874,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
                         border: 'none', borderRadius: 10, padding: '8px 12px',
                         fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: "'Lora', serif",
                       }}>
-                      Approve 🌿
+                      {t.settings.approve}
                     </button>
                   </div>
                 </div>
@@ -871,7 +884,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
         )}
 
         <p style={{ fontSize: 12, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-          Members ({members.length})
+          {t.settings.members} ({members.length})
         </p>
         <div style={{ marginBottom: 24 }}>
           {members.map(m => (
@@ -890,12 +903,12 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: 14, color: C.brown, fontWeight: 500 }}>
                   {m.profiles?.display_name}
-                  {m.user_id === user.id && <span style={{ fontSize: 11, color: C.brownM, marginLeft: 6 }}>(you)</span>}
+                  {m.user_id === user.id && <span style={{ fontSize: 11, color: C.brownM, marginLeft: 6 }}>{t.settings.memberYou}</span>}
                 </p>
               </div>
               {m.role === 'owner' && (
                 <span style={{ fontSize: 10, color: C.gold, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
-                  Owner
+                  {t.settings.memberOwner}
                 </span>
               )}
               {/* Owner can remove other members (not themselves, not other owners) */}
@@ -903,7 +916,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
                 <button
                   onClick={() => handleRemoveMember(m.user_id, m.profiles?.display_name)}
                   disabled={busy}
-                  title="Remove member"
+                  title={t.settings.removeMember}
                   style={{
                     background: 'transparent', border: 'none', color: '#C75050',
                     cursor: 'pointer', padding: 4, marginLeft: 4, lineHeight: 1,
@@ -922,16 +935,16 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
             background: C.warm, borderRadius: 14, padding: 16, marginBottom: 20,
             textAlign: 'center', border: `1px dashed ${C.terraL}`,
           }}>
-            <p style={{ fontSize: 11, color: C.brownM, marginBottom: 6 }}>Invite code</p>
+            <p style={{ fontSize: 11, color: C.brownM, marginBottom: 6 }}>{t.settings.inviteCode}</p>
             <p style={{ fontSize: 22, fontFamily: "'Playfair Display', serif", fontWeight: 600, color: C.terra, letterSpacing: 4, marginBottom: 8 }}>
               {garden.invite_code}
             </p>
             <p style={{ fontSize: 10, color: C.brownM, marginBottom: 8, fontStyle: 'italic' }}>
-              Share this code. New members will request to join — you approve them here.
+              {t.settings.inviteCodeDesc}
             </p>
-            <button onClick={() => navigator.share?.({ text: `Join my Bloom garden! Code: ${garden.invite_code}\n${window.location.origin}` }).catch(() => navigator.clipboard?.writeText(garden.invite_code))}
+            <button onClick={() => navigator.share?.({ text: `${t.fill(t.today.shareText, { code: garden.invite_code })}\n${window.location.origin}` }).catch(() => navigator.clipboard?.writeText(garden.invite_code))}
               style={{ ...btn.secondary, padding: '8px 18px', fontSize: 12, width: 'auto' }}>
-              Share Code 📤
+              {t.settings.shareCode}
             </button>
           </div>
         )}
@@ -942,7 +955,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
             color: '#C75050', borderRadius: 12, padding: 12, fontSize: 13,
             cursor: 'pointer', fontFamily: "'Lora', serif",
           }}>
-            Leave this garden
+            {t.settings.leaveGarden}
           </button>
         )}
 
@@ -950,7 +963,7 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
           background: 'none', border: 'none', color: C.brownM,
           fontSize: 12, marginTop: 14, cursor: 'pointer',
           padding: 8, width: '100%', fontFamily: "'Lora', serif",
-        }}>Close</button>
+        }}>{t.settings.close}</button>
       </div>
     </div>
   );
@@ -959,30 +972,39 @@ function GardenSettingsModal({ user, garden, onUpdated, onLeft, onRefreshRequest
 // ═══════════════════════════════════════════════════════════════
 // CHECK-IN FLIP CARD — tap to flip between answer and question
 // ═══════════════════════════════════════════════════════════════
-function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, onUpdated, onDeleted }) {
+function CheckInFlipCard({
+  checkIn, isMine, showAuthor = true, compact = false,
+  onUpdated, onDeleted,
+  // Lifted state — controlled by parent so only one card is open at a time.
+  isEditing = false, isConfirmingDelete = false,
+  onOpenEdit, onOpenDelete, onCloseActions,
+  t,
+}) {
   const [flipped, setFlipped] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(checkIn.answer);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const accentColor = isMine ? C.terra : C.sage;
   const padding = compact ? '12px 14px' : '14px 16px';
   const borderRadius = compact ? 12 : 14;
   const borderWidth = compact ? '2px' : '3px';
 
+  // If parent forces edit off, keep local text in sync with the saved answer.
+  useEffect(() => {
+    if (!isEditing) setEditText(checkIn.answer);
+  }, [isEditing, checkIn.answer]);
+
   const handleSaveEdit = async () => {
     const trimmed = editText.trim();
     if (!trimmed || trimmed === checkIn.answer) {
-      setEditing(false);
+      onCloseActions && onCloseActions();
       return;
     }
     setBusy(true);
     try {
       const updated = await db.updateCheckIn(checkIn.id, trimmed);
-      setEditing(false);
       if (onUpdated) onUpdated(updated);
     } catch (e) {
-      alert('Could not save your changes: ' + e.message);
+      alert(t.errors.couldNotSaveChanges + e.message);
     }
     setBusy(false);
   };
@@ -991,16 +1013,15 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
     setBusy(true);
     try {
       await db.deleteCheckIn(checkIn.id);
-      setConfirmDelete(false);
       if (onDeleted) onDeleted(checkIn.id);
     } catch (e) {
-      alert('Could not delete: ' + e.message);
+      alert(t.errors.couldNotDelete + e.message);
       setBusy(false);
     }
   };
 
   // Editing mode — no flip, just an inline editor
-  if (editing) {
+  if (isEditing) {
     return (
       <div style={{
         background: C.warm,
@@ -1011,7 +1032,7 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <p style={{ fontSize: 11, color: accentColor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Editing your reflection
+            {t.checkIn.editingLabel}
           </p>
         </div>
         <textarea
@@ -1029,18 +1050,18 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={() => { setEditText(checkIn.answer); setEditing(false); }}
+            onClick={() => { setEditText(checkIn.answer); onCloseActions && onCloseActions(); }}
             disabled={busy}
             style={{ ...btn.secondary, padding: '8px 14px', fontSize: 12, flex: 1 }}
           >
-            Cancel
+            {t.common.cancel}
           </button>
           <button
             onClick={handleSaveEdit}
             disabled={busy || !editText.trim()}
             style={{ ...btn.primary, padding: '8px 14px', fontSize: 12, flex: 1, opacity: (busy || !editText.trim()) ? 0.5 : 1 }}
           >
-            {busy ? 'Saving...' : 'Save'}
+            {busy ? t.checkIn.saving : t.checkIn.save}
           </button>
         </div>
       </div>
@@ -1082,16 +1103,17 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
             {showAuthor && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <p style={{ fontSize: 12, color: accentColor, fontWeight: 600 }}>
-                  {checkIn.profiles?.display_name || 'Anonymous'} {isMine && '(you)'}
+                  {checkIn.profiles?.display_name || t.checkIn.anonymous} {isMine && t.checkIn.you}
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 9, color: C.brownM, opacity: 0.5, letterSpacing: '0.05em' }}>
-                    ↻ tap
+                    {t.checkIn.tap}
                   </span>
                   {isMine && (
                     <EntryActionsMenu
-                      onEdit={() => setEditing(true)}
-                      onDelete={() => setConfirmDelete(true)}
+                      t={t}
+                      onEdit={() => onOpenEdit && onOpenEdit()}
+                      onDelete={() => onOpenDelete && onOpenDelete()}
                     />
                   )}
                 </div>
@@ -1104,12 +1126,13 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 9, color: C.brownM, opacity: 0.5, letterSpacing: '0.05em' }}>
-                    ↻ tap
+                    {t.checkIn.tap}
                   </span>
                   {isMine && (
                     <EntryActionsMenu
-                      onEdit={() => setEditing(true)}
-                      onDelete={() => setConfirmDelete(true)}
+                      t={t}
+                      onEdit={() => onOpenEdit && onOpenEdit()}
+                      onDelete={() => onOpenDelete && onOpenDelete()}
                     />
                   )}
                 </div>
@@ -1142,7 +1165,7 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
               fontSize: 10, color: accentColor, textTransform: 'uppercase',
               letterSpacing: '0.1em', marginBottom: 6, fontWeight: 600,
             }}>
-              Question · {checkIn.category}
+              {t.checkIn.question} · {checkIn.category}
             </p>
             <p style={{
               fontFamily: "'Playfair Display', serif",
@@ -1156,13 +1179,14 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
         </div>
       </div>
 
-      {confirmDelete && (
+      {isConfirmingDelete && (
         <ConfirmDialog
-          title="Delete this reflection?"
-          message="This will permanently remove it from your garden. This can't be undone."
-          confirmLabel="Delete"
+          title={t.checkIn.deleteConfirm}
+          message={t.checkIn.deleteMessage}
+          confirmLabel={t.common.delete}
+          cancelLabel={t.common.cancel}
           onConfirm={handleDelete}
-          onClose={() => !busy && setConfirmDelete(false)}
+          onClose={() => !busy && onCloseActions && onCloseActions()}
           busy={busy}
         />
       )}
@@ -1173,12 +1197,15 @@ function CheckInFlipCard({ checkIn, isMine, showAuthor = true, compact = false, 
 // ═══════════════════════════════════════════════════════════════
 // TODAY TAB
 // ═══════════════════════════════════════════════════════════════
-function TodayTab({ user, profile, garden, question, inspiration, stats, pendingRequests, onCheckIn, onShowSettings }) {
+function TodayTab({ user, profile, garden, question, inspiration, stats, pendingRequests, onCheckIn, onShowSettings, t }) {
   const [todayIns, setTodayIns] = useState([]);
   const [answer, setAnswer] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [justDone, setJustDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Lift check-in edit/delete state: only one card open at a time.
+  const [activeCardId, setActiveCardId] = useState(null);
+  const [activeCardMode, setActiveCardMode] = useState(null); // 'edit' | 'delete' | null
 
   useEffect(() => {
     if (garden?.id) db.getTodayCheckIns(garden.id).then(setTodayIns);
@@ -1191,14 +1218,15 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
         flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
         color: C.brownM, fontFamily: "'Lora', serif", fontSize: 13, opacity: 0.7,
       }}>
-        Loading today's garden…
+        {t.today.loading}
       </div>
     );
   }
 
   const myCheckIn = todayIns.find(c => c.user_id === user.id);
   const otherCheckIns = todayIns.filter(c => c.user_id !== user.id);
-  const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? t.today.goodMorning : hour < 17 ? t.today.goodAfternoon : t.today.goodEvening;
 
   const handleSubmit = async () => {
     if (!answer.trim()) return;
@@ -1248,15 +1276,19 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
         <div style={{ background: `${C.sageL}25`, borderRadius: 14, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 22 }}>🌱</span>
           <div>
-            <p style={{ fontSize: 13, fontWeight: 600, color: C.brown }}>{stats.current_streak} day streak!</p>
-            <p style={{ fontSize: 11, color: C.brownM }}>{stats.total_blooms} bloom{stats.total_blooms !== 1 ? 's' : ''} planted</p>
+            <p style={{ fontSize: 13, fontWeight: 600, color: C.brown }}>
+              {t.fill(stats.current_streak === 1 ? t.today.dayStreak : t.today.daysStreak, { n: stats.current_streak })}
+            </p>
+            <p style={{ fontSize: 11, color: C.brownM }}>
+              {t.fill(stats.total_blooms === 1 ? t.today.bloomPlanted : t.today.bloomsPlanted, { n: stats.total_blooms })}
+            </p>
           </div>
         </div>
       )}
 
       {/* Inspiration */}
       <div style={{ background: C.warm, borderRadius: 18, padding: '24px 22px', marginBottom: 16, boxShadow: '0 2px 10px rgba(61,50,41,0.05)' }}>
-        <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Daily bloom</p>
+        <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>{t.today.dailyBloom}</p>
         <p style={{ fontSize: 15, color: C.brown, lineHeight: 1.7, fontStyle: 'italic', fontFamily: "'Playfair Display', serif", marginBottom: 10 }}>
           "{inspiration.text}"
         </p>
@@ -1272,10 +1304,10 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <span>{question.icon}</span>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Today's question · {question.cat}</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t.today.todaysQuestion} · {question.cat}</span>
           </div>
           <p style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, fontFamily: "'Playfair Display', serif" }}>{question.q}</p>
-          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 10 }}>Tap to answer →</p>
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 10 }}>{t.today.tapToAnswer}</p>
         </button>
       )}
 
@@ -1289,13 +1321,13 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
           <p style={{ fontSize: 15, color: C.brown, fontFamily: "'Playfair Display', serif", fontStyle: 'italic', lineHeight: 1.5, marginBottom: 14 }}>
             {question.q}
           </p>
-          <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Share your thoughts..."
+          <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder={t.today.placeholder}
             rows={4} style={{ ...inputStyle, resize: 'none', lineHeight: 1.6, marginBottom: 12, fontSize: 14 }} autoFocus />
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => setShowForm(false)} style={{ ...btn.secondary, flex: 1 }}>Cancel</button>
+            <button onClick={() => setShowForm(false)} style={{ ...btn.secondary, flex: 1 }}>{t.common.cancel}</button>
             <button onClick={handleSubmit} disabled={!answer.trim() || busy}
               style={{ ...btn.primary, flex: 2, opacity: answer.trim() ? 1 : 0.4 }}>
-              {busy ? 'Planting...' : 'Plant Bloom 🌸'}
+              {busy ? t.today.planting : t.today.plantBloom}
             </button>
           </div>
         </div>
@@ -1304,15 +1336,15 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
       {justDone && (
         <div style={{ background: `${C.peach}40`, borderRadius: 16, padding: '24px 22px', marginBottom: 16, textAlign: 'center', animation: 'scaleIn 0.4s ease' }}>
           <div style={{ fontSize: 36, marginBottom: 6, animation: 'gentleFloat 2s ease-in-out infinite' }}>🌸</div>
-          <p style={{ fontSize: 15, fontFamily: "'Playfair Display', serif", color: C.brown, fontStyle: 'italic' }}>A new bloom in your garden!</p>
+          <p style={{ fontSize: 15, fontFamily: "'Playfair Display', serif", color: C.brown, fontStyle: 'italic' }}>{t.today.newBloom}</p>
         </div>
       )}
 
       {myCheckIn && !justDone && garden.type === 'solo' && (
         <div style={{ background: `${C.sageL}18`, borderRadius: 16, padding: '18px 20px', marginBottom: 16, textAlign: 'center', border: `1px solid ${C.sageL}35` }}>
           <span style={{ fontSize: 24 }}>🌸</span>
-          <p style={{ fontSize: 13, color: C.sageD, fontWeight: 500, margin: '6px 0 2px' }}>Today's bloom is planted!</p>
-          <p style={{ fontSize: 11, color: C.brownM }}>Come back tomorrow for a new question</p>
+          <p style={{ fontSize: 13, color: C.sageD, fontWeight: 500, margin: '6px 0 2px' }}>{t.today.yourBloom}</p>
+          <p style={{ fontSize: 11, color: C.brownM }}>{t.today.comeBackTomorrow}</p>
         </div>
       )}
 
@@ -1320,7 +1352,7 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
       {myCheckIn && (todayIns.length > 1 || garden.type === 'solo') && (
         <div style={{ marginTop: 4 }}>
           <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-            Today's reflection{todayIns.length > 1 ? 's' : ''}
+            {todayIns.length > 1 ? t.today.todaysReflections : t.today.todaysReflection}
           </p>
           {todayIns.map((ci) => (
             <CheckInFlipCard
@@ -1328,8 +1360,20 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
               checkIn={ci}
               isMine={ci.user_id === user.id}
               showAuthor={true}
-              onUpdated={(updated) => setTodayIns(prev => prev.map(c => c.id === updated.id ? updated : c))}
-              onDeleted={(id) => setTodayIns(prev => prev.filter(c => c.id !== id))}
+              t={t}
+              isEditing={activeCardId === ci.id && activeCardMode === 'edit'}
+              isConfirmingDelete={activeCardId === ci.id && activeCardMode === 'delete'}
+              onOpenEdit={() => { setActiveCardId(ci.id); setActiveCardMode('edit'); }}
+              onOpenDelete={() => { setActiveCardId(ci.id); setActiveCardMode('delete'); }}
+              onCloseActions={() => { setActiveCardId(null); setActiveCardMode(null); }}
+              onUpdated={(updated) => {
+                setTodayIns(prev => prev.map(c => c.id === updated.id ? updated : c));
+                setActiveCardId(null); setActiveCardMode(null);
+              }}
+              onDeleted={(id) => {
+                setTodayIns(prev => prev.filter(c => c.id !== id));
+                setActiveCardId(null); setActiveCardMode(null);
+              }}
             />
           ))}
         </div>
@@ -1340,7 +1384,7 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
         <div style={{ background: C.warm, borderRadius: 14, padding: '14px 18px', marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 18 }}>⏳</span>
           <p style={{ fontSize: 13, color: C.brownM }}>
-            Waiting for others in your garden to answer...
+            {t.today.waitingOthers}
           </p>
         </div>
       )}
@@ -1348,10 +1392,10 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
       {/* Show invite code if garden has one */}
       {garden.invite_code && (
         <div style={{ background: C.warm, borderRadius: 16, padding: 16, textAlign: 'center', marginTop: 14, border: `1px dashed ${C.terraL}` }}>
-          <p style={{ fontSize: 11, color: C.brownL, marginBottom: 6 }}>Invite code for this garden</p>
+          <p style={{ fontSize: 11, color: C.brownL, marginBottom: 6 }}>{t.today.inviteCodeLabel}</p>
           <p style={{ fontSize: 24, fontFamily: "'Playfair Display', serif", fontWeight: 600, color: C.terra, letterSpacing: 5 }}>{garden.invite_code}</p>
-          <button onClick={() => navigator.share?.({ text: `Join my Bloom garden! Code: ${garden.invite_code}\n${window.location.origin}` }).catch(() => navigator.clipboard?.writeText(garden.invite_code))}
-            style={{ ...btn.secondary, marginTop: 10, width: 'auto', padding: '8px 18px', fontSize: 12 }}>Share Code 📤</button>
+          <button onClick={() => navigator.share?.({ text: `${t.fill(t.today.shareText, { code: garden.invite_code })}\n${window.location.origin}` }).catch(() => navigator.clipboard?.writeText(garden.invite_code))}
+            style={{ ...btn.secondary, marginTop: 10, width: 'auto', padding: '8px 18px', fontSize: 12 }}>{t.today.shareCode}</button>
         </div>
       )}
     </div>
@@ -1361,8 +1405,12 @@ function TodayTab({ user, profile, garden, question, inspiration, stats, pending
 // ═══════════════════════════════════════════════════════════════
 // GARDEN VIEW TAB
 // ═══════════════════════════════════════════════════════════════
-function GardenTab({ user, gardenName, stats, gardenId }) {
+function GardenTab({ user, gardenName, stats, gardenId, t }) {
   const [history, setHistory] = useState([]);
+  // Edit/delete state lifted from cards so only one is open at a time.
+  const [activeCardId, setActiveCardId] = useState(null);
+  const [activeCardMode, setActiveCardMode] = useState(null);
+
   useEffect(() => {
     if (gardenId) db.getRecentCheckIns(gardenId, 20).then(setHistory);
   }, [gardenId, stats.total_blooms]);
@@ -1380,7 +1428,9 @@ function GardenTab({ user, gardenName, stats, gardenId }) {
   return (
     <div style={{ textAlign: 'center', paddingBottom: 20 }}>
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>{gardenName}</h2>
-      <p style={{ fontSize: 12, color: C.sage, marginBottom: 20 }}>{stats.total_blooms} bloom{stats.total_blooms !== 1 ? 's' : ''} planted</p>
+      <p style={{ fontSize: 12, color: C.sage, marginBottom: 20 }}>
+        {t.fill(stats.total_blooms === 1 ? t.today.bloomPlanted : t.today.bloomsPlanted, { n: stats.total_blooms })}
+      </p>
 
       <div style={{
         width: '100%', maxWidth: 380, aspectRatio: '1/1.15', borderRadius: 22,
@@ -1416,17 +1466,17 @@ function GardenTab({ user, gardenName, stats, gardenId }) {
 
         {stats.total_blooms === 0 && (
           <div style={{ position: 'absolute', bottom: 70, left: 0, right: 0, textAlign: 'center' }}>
-            <p style={{ fontSize: 14, color: '#5C6E4E', fontStyle: 'italic' }}>Your garden is waiting to bloom...</p>
-            <p style={{ fontSize: 12, color: '#5C6E4E', opacity: 0.6 }}>Complete your first check-in to plant a flower</p>
+            <p style={{ fontSize: 14, color: '#5C6E4E', fontStyle: 'italic' }}>{t.today.emptyState}</p>
+            <p style={{ fontSize: 12, color: '#5C6E4E', opacity: 0.6 }}>{t.today.completeFirst}</p>
           </div>
         )}
       </div>
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
         {[
-          { v: `${stats.current_streak}`, l: 'Streak', i: '🔥' },
-          { v: `${stats.total_blooms}`, l: 'Blooms', i: '🌸' },
-          { v: `${stats.longest_streak}`, l: 'Best', i: '🏆' },
+          { v: `${stats.current_streak}`, l: t.garden.streak, i: '🔥' },
+          { v: `${stats.total_blooms}`, l: t.garden.blooms, i: '🌸' },
+          { v: `${stats.longest_streak}`, l: t.garden.best, i: '🏆' },
         ].map((s, i) => (
           <div key={i} style={{ flex: 1, background: C.warm, borderRadius: 14, padding: '14px 10px', boxShadow: '0 1px 6px rgba(61,50,41,0.04)' }}>
             <span style={{ fontSize: 18 }}>{s.i}</span>
@@ -1438,7 +1488,7 @@ function GardenTab({ user, gardenName, stats, gardenId }) {
 
       {history.length > 0 && (
         <div style={{ marginTop: 22, textAlign: 'left' }}>
-          <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Recent reflections</p>
+          <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>{t.garden.recentReflections}</p>
           {history.slice(0, 6).map((h) => (
             <CheckInFlipCard
               key={h.id}
@@ -1446,8 +1496,20 @@ function GardenTab({ user, gardenName, stats, gardenId }) {
               isMine={h.user_id === user?.id}
               showAuthor={false}
               compact={true}
-              onUpdated={(updated) => setHistory(prev => prev.map(c => c.id === updated.id ? updated : c))}
-              onDeleted={(id) => setHistory(prev => prev.filter(c => c.id !== id))}
+              t={t}
+              isEditing={activeCardId === h.id && activeCardMode === 'edit'}
+              isConfirmingDelete={activeCardId === h.id && activeCardMode === 'delete'}
+              onOpenEdit={() => { setActiveCardId(h.id); setActiveCardMode('edit'); }}
+              onOpenDelete={() => { setActiveCardId(h.id); setActiveCardMode('delete'); }}
+              onCloseActions={() => { setActiveCardId(null); setActiveCardMode(null); }}
+              onUpdated={(updated) => {
+                setHistory(prev => prev.map(c => c.id === updated.id ? updated : c));
+                setActiveCardId(null); setActiveCardMode(null);
+              }}
+              onDeleted={(id) => {
+                setHistory(prev => prev.filter(c => c.id !== id));
+                setActiveCardId(null); setActiveCardMode(null);
+              }}
             />
           ))}
         </div>
@@ -1459,7 +1521,7 @@ function GardenTab({ user, gardenName, stats, gardenId }) {
 // ═══════════════════════════════════════════════════════════════
 // NOTES TAB
 // ═══════════════════════════════════════════════════════════════
-function NotesTab({ user, garden }) {
+function NotesTab({ user, garden, t }) {
   const [notes, setNotes] = useState([]);
   const [text, setText] = useState('');
   const [sent, setSent] = useState(false);
@@ -1507,7 +1569,7 @@ function NotesTab({ user, garden }) {
       setNotes(prev => prev.map(n => n.id === updated.id ? updated : n));
       setEditingId(null);
       setEditText('');
-    } catch (e) { alert('Could not save: ' + e.message); }
+    } catch (e) { alert(t.errors.couldNotSave + e.message); }
     setBusy(false);
   };
 
@@ -1518,22 +1580,22 @@ function NotesTab({ user, garden }) {
       setNotes(prev => prev.filter(n => n.id !== deleteId));
       setDeleteId(null);
     } catch (e) {
-      alert('Could not delete: ' + e.message);
+      alert(t.errors.couldNotDelete + e.message);
     }
     setBusy(false);
   };
 
-  const placeholder = garden.type === 'solo'
-    ? 'A note to yourself...'
-    : `Write something for your garden...`;
+  const placeholder = garden.type === 'solo' ? t.notes.placeholderSolo : t.notes.placeholderShared;
+  const title = garden.type === 'solo' ? t.notes.titleSolo : garden.type === 'group' ? t.notes.titleGroup : t.notes.titleShared;
+  const subtitle = garden.type === 'solo' ? t.notes.subtitleSolo : t.notes.subtitleShared;
 
   return (
     <div style={{ paddingBottom: 20 }}>
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>
-        {garden.type === 'solo' ? 'Notes to Self' : 'Love Notes'}
+        {title}
       </h2>
       <p style={{ fontSize: 12, color: C.brownM, marginBottom: 18 }}>
-        {garden.type === 'solo' ? 'Letters to your future self' : 'Leave surprises for your garden'}
+        {subtitle}
       </p>
 
       <div style={{ background: C.warm, borderRadius: 16, padding: 18, marginBottom: 20, boxShadow: '0 2px 8px rgba(61,50,41,0.04)' }}>
@@ -1541,20 +1603,20 @@ function NotesTab({ user, garden }) {
           rows={3} style={{ ...inputStyle, resize: 'none', lineHeight: 1.6, fontSize: 14, marginBottom: 10 }} />
         <button onClick={send} disabled={!text.trim() || busy}
           style={{ ...btn.primary, opacity: text.trim() ? 1 : 0.4 }}>
-          {busy && !editingId && !deleteId ? 'Sending...' : 'Leave Note 💌'}
+          {busy && !editingId && !deleteId ? t.notes.sending : t.notes.button}
         </button>
       </div>
 
       {sent && (
         <div style={{ textAlign: 'center', padding: 14, animation: 'scaleIn 0.3s ease' }}>
           <span style={{ fontSize: 28 }}>💌</span>
-          <p style={{ fontSize: 13, color: C.terra, fontStyle: 'italic' }}>Note delivered with love!</p>
+          <p style={{ fontSize: 13, color: C.terra, fontStyle: 'italic' }}>{t.notes.delivered}</p>
         </div>
       )}
 
       {notes.length > 0 && (
         <div>
-          <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Previous notes</p>
+          <p style={{ fontSize: 10, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>{t.notes.previous}</p>
           {notes.map(n => {
             const isMine = n.from_user_id === user.id;
             const accent = isMine ? C.terra : C.sage;
@@ -1564,7 +1626,7 @@ function NotesTab({ user, garden }) {
               return (
                 <div key={n.id} style={{ background: C.warm, borderRadius: 12, padding: '12px 16px', marginBottom: 8, borderLeft: `3px solid ${accent}` }}>
                   <p style={{ fontSize: 10, color: accent, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                    Editing your note
+                    {t.notes.editingLabel}
                   </p>
                   <textarea
                     value={editText}
@@ -1576,11 +1638,11 @@ function NotesTab({ user, garden }) {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={cancelEdit} disabled={busy}
                       style={{ ...btn.secondary, padding: '8px 14px', fontSize: 12, flex: 1 }}>
-                      Cancel
+                      {t.common.cancel}
                     </button>
                     <button onClick={saveEdit} disabled={busy || !editText.trim()}
                       style={{ ...btn.primary, padding: '8px 14px', fontSize: 12, flex: 1, opacity: (busy || !editText.trim()) ? 0.5 : 1 }}>
-                      {busy ? 'Saving...' : 'Save'}
+                      {busy ? t.checkIn.saving : t.checkIn.save}
                     </button>
                   </div>
                 </div>
@@ -1595,13 +1657,14 @@ function NotesTab({ user, garden }) {
                   </p>
                   {isMine && (
                     <EntryActionsMenu
+                      t={t}
                       onEdit={() => startEdit(n)}
                       onDelete={() => setDeleteId(n.id)}
                     />
                   )}
                 </div>
                 <p style={{ fontSize: 10, color: C.brownM, opacity: 0.6 }}>
-                  {n.profiles?.display_name || 'You'} · {new Date(n.created_at).toLocaleDateString()}
+                  {n.profiles?.display_name || t.notes.you} · {new Date(n.created_at).toLocaleDateString()}
                 </p>
               </div>
             );
@@ -1612,15 +1675,16 @@ function NotesTab({ user, garden }) {
       {notes.length === 0 && !sent && (
         <div style={{ textAlign: 'center', padding: '36px 20px' }}>
           <span style={{ fontSize: 36, opacity: 0.3 }}>💌</span>
-          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>No notes yet. Write the first one!</p>
+          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>{t.notes.empty}</p>
         </div>
       )}
 
       {deleteId && (
         <ConfirmDialog
-          title="Delete this note?"
-          message="This will permanently remove your note from the garden. This can't be undone."
-          confirmLabel="Delete"
+          title={t.notes.deleteConfirm}
+          message={t.notes.deleteMessage}
+          confirmLabel={t.common.delete}
+          cancelLabel={t.common.cancel}
           onConfirm={confirmDelete}
           onClose={() => !busy && setDeleteId(null)}
           busy={busy}
@@ -1633,7 +1697,7 @@ function NotesTab({ user, garden }) {
 // ═══════════════════════════════════════════════════════════════
 // MOMENTS TAB
 // ═══════════════════════════════════════════════════════════════
-function MomentsTab({ user, garden }) {
+function MomentsTab({ user, garden, t }) {
   const [moments, setMoments] = useState([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1675,7 +1739,7 @@ function MomentsTab({ user, garden }) {
       setMoments(prev => prev.map(m => m.id === updated.id ? updated : m));
       setEditingId(null);
       setEditText('');
-    } catch (e) { alert('Could not save: ' + e.message); }
+    } catch (e) { alert(t.errors.couldNotSave + e.message); }
     setBusy(false);
   };
 
@@ -1686,24 +1750,24 @@ function MomentsTab({ user, garden }) {
       setMoments(prev => prev.filter(m => m.id !== deleteId));
       setDeleteId(null);
     } catch (e) {
-      alert('Could not delete: ' + e.message);
+      alert(t.errors.couldNotDelete + e.message);
     }
     setBusy(false);
   };
 
   return (
     <div style={{ paddingBottom: 20 }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>Goals</h2>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 19, fontWeight: 500, color: C.brown, marginBottom: 4 }}>{t.goals.title}</h2>
       <p style={{ fontSize: 12, color: C.brownM, marginBottom: 18 }}>
-        {garden.type === 'solo' ? 'Your timeline of meaningful Goals' : 'Your shared timeline'}
+        {garden.type === 'solo' ? t.goals.subtitleSolo : t.goals.subtitleShared}
       </p>
 
       <div style={{ background: C.warm, borderRadius: 16, padding: 18, marginBottom: 22, boxShadow: '0 2px 8px rgba(61,50,41,0.04)' }}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder="Capture a memory or milestone..."
+        <input value={text} onChange={e => setText(e.target.value)} placeholder={t.goals.placeholder}
           onKeyDown={e => e.key === 'Enter' && add()}
           style={{ ...inputStyle, fontSize: 14, marginBottom: 10 }} />
         <button onClick={add} disabled={!text.trim() || busy}
-          style={{ ...btn.secondary, opacity: text.trim() ? 1 : 0.4 }}>Add to Timeline</button>
+          style={{ ...btn.secondary, opacity: text.trim() ? 1 : 0.4 }}>{t.goals.button}</button>
       </div>
 
       {moments.length > 0 ? (
@@ -1727,11 +1791,11 @@ function MomentsTab({ user, garden }) {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={cancelEdit} disabled={busy}
                       style={{ ...btn.secondary, padding: '6px 12px', fontSize: 12, flex: 1 }}>
-                      Cancel
+                      {t.common.cancel}
                     </button>
                     <button onClick={saveEdit} disabled={busy || !editText.trim()}
                       style={{ ...btn.primary, padding: '6px 12px', fontSize: 12, flex: 1, opacity: (busy || !editText.trim()) ? 0.5 : 1 }}>
-                      {busy ? 'Saving...' : 'Save'}
+                      {busy ? t.checkIn.saving : t.checkIn.save}
                     </button>
                   </div>
                 </div>
@@ -1745,6 +1809,7 @@ function MomentsTab({ user, garden }) {
                   <p style={{ fontSize: 14, color: C.brown, lineHeight: 1.5, marginBottom: 2, flex: 1 }}>{m.title}</p>
                   {isMine && (
                     <EntryActionsMenu
+                      t={t}
                       onEdit={() => startEdit(m)}
                       onDelete={() => setDeleteId(m.id)}
                     />
@@ -1760,15 +1825,16 @@ function MomentsTab({ user, garden }) {
       ) : (
         <div style={{ textAlign: 'center', padding: '36px 20px' }}>
           <span style={{ fontSize: 36, opacity: 0.3 }}>🏆</span>
-          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>Start capturing daily Goals</p>
+          <p style={{ fontSize: 13, color: C.brownM, fontStyle: 'italic', marginTop: 10 }}>{t.goals.empty}</p>
         </div>
       )}
 
       {deleteId && (
         <ConfirmDialog
-          title="Delete this goal?"
-          message="This will permanently remove it from your timeline. This can't be undone."
-          confirmLabel="Delete"
+          title={t.goals.deleteConfirm}
+          message={t.goals.deleteMessage}
+          confirmLabel={t.common.delete}
+          cancelLabel={t.common.cancel}
           onConfirm={confirmDelete}
           onClose={() => !busy && setDeleteId(null)}
           busy={busy}
@@ -1781,7 +1847,7 @@ function MomentsTab({ user, garden }) {
 // ═══════════════════════════════════════════════════════════════
 // ENTRY ACTIONS MENU — the (i) icon + Edit / Delete popup
 // ═══════════════════════════════════════════════════════════════
-function EntryActionsMenu({ onEdit, onDelete }) {
+function EntryActionsMenu({ onEdit, onDelete, t }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -1857,7 +1923,7 @@ function EntryActionsMenu({ onEdit, onDelete }) {
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
-            Edit
+            {t?.common?.edit || 'Edit'}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }}
@@ -1877,7 +1943,7 @@ function EntryActionsMenu({ onEdit, onDelete }) {
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
               <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
             </svg>
-            Delete
+            {t?.common?.delete || 'Delete'}
           </button>
         </div>
       )}
@@ -1888,7 +1954,7 @@ function EntryActionsMenu({ onEdit, onDelete }) {
 // ═══════════════════════════════════════════════════════════════
 // CONFIRM DIALOG — "Are you sure?" modal for destructive actions
 // ═══════════════════════════════════════════════════════════════
-function ConfirmDialog({ title, message, confirmLabel = 'Delete', onConfirm, onClose, busy }) {
+function ConfirmDialog({ title, message, confirmLabel = 'Delete', cancelLabel = 'Cancel', onConfirm, onClose, busy }) {
   return (
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(46,36,28,0.5)',
@@ -1925,7 +1991,7 @@ function ConfirmDialog({ title, message, confirmLabel = 'Delete', onConfirm, onC
               cursor: busy ? 'not-allowed' : 'pointer',
             }}
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
