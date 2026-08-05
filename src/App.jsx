@@ -376,6 +376,13 @@ function MainApp({ user, profile, gardens, activeGarden, onSwitchGarden, onRefre
               onSwitchGarden(newest.id);
             }
           }}
+          onJoined={async (gardenId) => {
+            // RPC has already added us to garden_members.
+            // Close, refresh, and switch to the joined garden.
+            setShowCreate(false);
+            await onRefreshGardens();
+            onSwitchGarden(gardenId);
+          }}
           onClose={() => setShowCreate(false)}
         />
       )}
@@ -519,13 +526,12 @@ function GardenSwitcher({ gardens, activeId, onSelect, onCreate, onClose, onSign
 // ═══════════════════════════════════════════════════════════════
 // CREATE GARDEN MODAL
 // ═══════════════════════════════════════════════════════════════
-function CreateGardenModal({ user, onCreated, onClose, t }) {
+function CreateGardenModal({ user, onCreated, onJoined, onClose, t }) {
   const [step, setStep] = useState('choose'); // 'choose', 'create', 'join'
   const [type, setType] = useState(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [createdGarden, setCreatedGarden] = useState(null);
-  const [requestSent, setRequestSent] = useState(null); // { gardenName }
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -543,10 +549,44 @@ function CreateGardenModal({ user, onCreated, onClose, t }) {
     if (!code.trim()) return;
     setBusy(true); setError('');
     try {
-      const { garden } = await db.requestToJoin(user.id, code);
-      setRequestSent({ gardenName: garden.name });
-    } catch (e) { setError(e.message); }
-    setBusy(false);
+      const normalizedCode = code.trim().toUpperCase();
+      // Use the SECURITY DEFINER RPC — bypasses RLS so we can look up the
+      // garden by invite_code without being a member yet, and adds the user
+      // to garden_members atomically.
+      const { data: gardenId, error: rpcErr } = await supabase.rpc(
+        'join_garden_by_invite_code',
+        { invite_code_input: normalizedCode }
+      );
+
+      if (rpcErr) {
+        console.error('Join garden error:', rpcErr);
+        const msg = rpcErr.message || '';
+        if (msg.includes('Invalid invite code')) {
+          setError(t.create.invalidCode);
+        } else if (msg.includes('Authentication required')) {
+          setError(t.create.authRequired);
+        } else {
+          setError(t.create.joinFailed);
+        }
+        setBusy(false);
+        return;
+      }
+
+      if (!gardenId) {
+        setError(t.create.joinFailed);
+        setBusy(false);
+        return;
+      }
+
+      // Success — user is now a member. Hand off to parent which will
+      // refresh the gardens list and switch to this specific garden.
+      // Don't setBusy(false) — the modal is about to close.
+      onJoined(gardenId);
+    } catch (e) {
+      console.error('Join garden exception:', e);
+      setError(t.create.joinFailed);
+      setBusy(false);
+    }
   };
 
   return (
@@ -679,8 +719,8 @@ function CreateGardenModal({ user, onCreated, onClose, t }) {
           </>
         )}
 
-        {/* JOIN STEP — form */}
-        {step === 'join' && !requestSent && (
+        {/* JOIN STEP — form (immediate join via RPC) */}
+        {step === 'join' && (
           <>
             <button onClick={() => setStep('choose')} style={{
               background: 'none', border: 'none', color: C.brownM,
@@ -706,25 +746,9 @@ function CreateGardenModal({ user, onCreated, onClose, t }) {
 
             <button onClick={handleJoin} disabled={code.length < 6 || busy}
               style={{ ...btn.primary, marginTop: 12, opacity: code.length >= 6 ? 1 : 0.4 }}>
-              {busy ? t.create.sending : t.create.sendRequest}
+              {busy ? t.create.joining : t.create.joinGarden}
             </button>
           </>
-        )}
-
-        {/* JOIN — REQUEST SENT success */}
-        {requestSent && (
-          <div style={{ textAlign: 'center', animation: 'scaleIn 0.4s ease' }}>
-            <div style={{ fontSize: 48, marginBottom: 16, animation: 'gentleFloat 2s ease-in-out infinite' }}>📨</div>
-            <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, marginBottom: 10 }}>
-              {t.create.requestSentTitle}
-            </h2>
-            <p style={{ fontSize: 14, color: C.brownL, lineHeight: 1.6, marginBottom: 24, maxWidth: 280, marginLeft: 'auto', marginRight: 'auto' }}>
-              {t.fill(t.create.requestSentDesc, { name: requestSent.gardenName })}
-            </p>
-            <button onClick={onClose} style={btn.primary}>
-              {t.create.gotIt}
-            </button>
-          </div>
         )}
       </div>
     </div>
