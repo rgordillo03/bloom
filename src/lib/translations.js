@@ -24,6 +24,7 @@ const en = {
     tagline: 'Tend your love, one tap at a time.',
     logIn: 'Log In',
     joinBloom: 'Join Bloom 🌱',
+    tryFree: 'or try Bloom for free',
     // Email step
     emailStepTitle: 'Welcome back',
     emailPrompt: 'Enter the email you used to buy Bloom',
@@ -32,7 +33,7 @@ const en = {
     sending: 'Sending...',
     // Code step
     codeStepTitle: 'Check your email',
-    codeStepDesc: "We sent a 6-digit code to",
+    codeStepDesc: 'We sent a login code to',
     codePlaceholder: '000000',
     verify: 'Log in',
     verifying: 'Logging in...',
@@ -45,10 +46,14 @@ const en = {
     getBloom: 'Get Bloom 🌱',
     tryDifferentEmail: 'Try a different email',
     // Errors
+    invalidEmail: "That doesn't look like a valid email.",
     invalidCode: "That code doesn't look right. Try again or resend.",
     codeExpired: 'That code expired. Send a new one.',
     tooManyAttempts: 'Too many attempts. Try again in a few minutes.',
     rateLimit: 'Please wait a moment before trying again.',
+    sessionError: "Signed in, but couldn't start your session. Try again.",
+    genericError: 'Something went wrong. Try again in a moment.',
+    resendCountdown: 'Resend in {n}s',
     // Footer
     footerAbout: 'About',
     footerImpressum: 'Impressum',
@@ -237,6 +242,7 @@ const de = {
     tagline: 'Pflege deine Liebe, mit einem Tippen nach dem anderen.',
     logIn: 'Einloggen',
     joinBloom: 'Bloom holen 🌱',
+    tryFree: 'oder Bloom kostenlos ausprobieren',
     // Email step
     emailStepTitle: 'Willkommen zurück',
     emailPrompt: 'Gib die E-Mail ein, mit der du Bloom gekauft hast',
@@ -245,7 +251,7 @@ const de = {
     sending: 'Wird gesendet...',
     // Code step
     codeStepTitle: 'Schau in dein Postfach',
-    codeStepDesc: 'Wir haben einen 6-stelligen Code geschickt an',
+    codeStepDesc: 'Wir haben einen Login-Code geschickt an',
     codePlaceholder: '000000',
     verify: 'Einloggen',
     verifying: 'Wird eingeloggt...',
@@ -258,10 +264,14 @@ const de = {
     getBloom: 'Bloom holen 🌱',
     tryDifferentEmail: 'Andere E-Mail probieren',
     // Errors
+    invalidEmail: 'Das sieht nicht wie eine gültige E-Mail aus.',
     invalidCode: 'Der Code sieht nicht richtig aus. Versuch es nochmal oder lass dir einen neuen schicken.',
     codeExpired: 'Der Code ist abgelaufen. Lass dir einen neuen schicken.',
     tooManyAttempts: 'Zu viele Versuche. Versuch es in ein paar Minuten nochmal.',
     rateLimit: 'Warte einen Moment, bevor du es nochmal probierst.',
+    sessionError: 'Eingeloggt, aber die Sitzung konnte nicht gestartet werden. Versuch es nochmal.',
+    genericError: 'Etwas ist schiefgelaufen. Versuch es gleich nochmal.',
+    resendCountdown: 'Erneut senden in {n}s',
     // Footer
     footerAbout: 'Über uns',
     footerImpressum: 'Impressum',
@@ -450,6 +460,7 @@ const es = {
     tagline: 'Cuida tu amor, un toque a la vez.',
     logIn: 'Iniciar sesión',
     joinBloom: 'Consigue Bloom 🌱',
+    tryFree: 'o prueba Bloom gratis',
     // Email step
     emailStepTitle: 'Bienvenido de vuelta',
     emailPrompt: 'Ingresa el correo que usaste para comprar Bloom',
@@ -458,7 +469,7 @@ const es = {
     sending: 'Enviando...',
     // Code step
     codeStepTitle: 'Revisa tu correo',
-    codeStepDesc: 'Enviamos un código de 6 dígitos a',
+    codeStepDesc: 'Enviamos un código de acceso a',
     codePlaceholder: '000000',
     verify: 'Entrar',
     verifying: 'Iniciando sesión...',
@@ -471,10 +482,14 @@ const es = {
     getBloom: 'Consigue Bloom 🌱',
     tryDifferentEmail: 'Probar otro correo',
     // Errors
+    invalidEmail: 'Ese correo no se ve válido.',
     invalidCode: 'Ese código no se ve bien. Intenta de nuevo o pide otro.',
     codeExpired: 'Ese código ya expiró. Pide uno nuevo.',
     tooManyAttempts: 'Demasiados intentos. Vuelve a intentarlo en unos minutos.',
     rateLimit: 'Espera un momento antes de intentar de nuevo.',
+    sessionError: 'Sesión iniciada, pero no se pudo activar. Intenta de nuevo.',
+    genericError: 'Algo salió mal. Intenta en un momento.',
+    resendCountdown: 'Reenviar en {n}s',
     // Footer
     footerAbout: 'Sobre nosotros',
     footerImpressum: 'Impressum',
