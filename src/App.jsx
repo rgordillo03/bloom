@@ -133,96 +133,302 @@ function SplashScreen() {
 // ═══════════════════════════════════════════════════════════════
 // AUTH SCREEN
 // ═══════════════════════════════════════════════════════════════
+// External URLs used by the auth screen.
+const BLOOM_SHOP_URL = 'https://oneculture.world/collections/bloom';
+const ABOUT_URL = 'https://oneculture.world/pages/copy-of-philanthropie-leben-verandern-ein-akt-der-liebenswurdigkeit-nach-dem-anderen';
+const IMPRESSUM_URL = 'https://oneculture.world/pages/impressum';
+const INSTAGRAM_URL = 'https://www.instagram.com/oneculture.world/';
+
+// Instagram glyph as inline SVG (avoids extra assets, scales cleanly).
+function InstagramIcon({ size = 16, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.5" cy="6.5" r="0.9" fill={color} stroke="none" />
+    </svg>
+  );
+}
+
 function AuthScreen() {
-  const [mode, setMode] = useState(null); // 'signup', 'login'
+  // Screen states: 'landing' | 'email' | 'code' | 'notRegistered'
+  const [screen, setScreen] = useState('landing');
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [sent, setSent] = useState(false);
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resent, setResent] = useState(false);
 
   // Browser language detection — before user has a profile.
   const browserLang = (typeof navigator !== 'undefined' ? (navigator.language || 'en').slice(0, 2) : 'en');
   const initialLang = ['en', 'de', 'es'].includes(browserLang) ? browserLang : 'en';
   const t = useT(initialLang);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    if (mode === 'signup' && !name.trim()) return;
-    setBusy(true);
-    setError('');
-    const options = { emailRedirectTo: window.location.origin };
-    if (mode === 'signup') options.data = { display_name: name.trim() };
+  // ─── Request a 6-digit OTP by email ─────────────────────────
+  // shouldCreateUser: false means Supabase will NOT auto-create an account
+  // for unknown emails — it returns an error instead, which we map to the
+  // "not registered" screen. Only paid customers (already provisioned in
+  // Supabase Auth) can log in.
+  const requestCode = async (e) => {
+    e?.preventDefault?.();
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed) return;
+    setBusy(true); setError('');
     const { error: authErr } = await supabase.auth.signInWithOtp({
-      email: email.trim(), options,
+      email: trimmed,
+      options: { shouldCreateUser: false },
     });
     setBusy(false);
-    if (authErr) { setError(authErr.message); return; }
-    setSent(true);
+    if (authErr) {
+      const msg = (authErr.message || '').toLowerCase();
+      // Supabase returns "Signups not allowed for otp" when the user doesn't exist.
+      if (msg.includes('signup') && msg.includes('not allowed')) {
+        setScreen('notRegistered');
+      } else if (msg.includes('not found') || msg.includes('user not found')) {
+        setScreen('notRegistered');
+      } else if (msg.includes('rate limit') || msg.includes('too many')) {
+        setError(t.auth.rateLimit);
+      } else {
+        setError(authErr.message);
+      }
+      return;
+    }
+    setScreen('code');
   };
 
-  const reset = () => { setMode(null); setEmail(''); setName(''); setSent(false); setError(''); };
+  // ─── Verify the 6-digit OTP ─────────────────────────────────
+  const verifyCode = async (e) => {
+    e?.preventDefault?.();
+    const cleanCode = code.replace(/\D/g, '');
+    if (cleanCode.length !== 6) return;
+    setBusy(true); setError('');
+    const { error: authErr } = await supabase.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token: cleanCode,
+      type: 'email',
+    });
+    setBusy(false);
+    if (authErr) {
+      const msg = (authErr.message || '').toLowerCase();
+      if (msg.includes('expired')) setError(t.auth.codeExpired);
+      else if (msg.includes('invalid') || msg.includes('token')) setError(t.auth.invalidCode);
+      else if (msg.includes('rate limit') || msg.includes('too many')) setError(t.auth.tooManyAttempts);
+      else setError(authErr.message);
+      return;
+    }
+    // Success — Supabase session is now set, App will re-render into MainApp.
+  };
+
+  const resendCode = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    const { error: authErr } = await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { shouldCreateUser: false },
+    });
+    setBusy(false);
+    if (authErr) {
+      const msg = (authErr.message || '').toLowerCase();
+      if (msg.includes('rate limit') || msg.includes('too many')) setError(t.auth.rateLimit);
+      else setError(authErr.message);
+      return;
+    }
+    setResent(true);
+    setTimeout(() => setResent(false), 4000);
+  };
+
+  const backToLanding = () => {
+    setScreen('landing');
+    setEmail(''); setCode(''); setError(''); setResent(false);
+  };
+  const backToEmail = () => {
+    setScreen('email');
+    setCode(''); setError(''); setResent(false);
+  };
+
+  // ─── Shared footer with 3 links ─────────────────────────────
+  const footer = (
+    <div style={{
+      marginTop: 'auto', paddingTop: 32, width: '100%', maxWidth: 320,
+      display: 'flex', justifyContent: 'center', alignItems: 'center',
+      gap: 22, opacity: 0.65,
+    }}>
+      <a href={ABOUT_URL} target="_blank" rel="noopener noreferrer"
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textDecoration: 'none', color: C.brownM, fontSize: 10, fontFamily: "'Lora', serif" }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 16v-4M12 8h.01"/>
+        </svg>
+        <span>{t.auth.footerAbout}</span>
+      </a>
+      <a href={IMPRESSUM_URL} target="_blank" rel="noopener noreferrer"
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textDecoration: 'none', color: C.brownM, fontSize: 10, fontFamily: "'Lora', serif" }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="8" y1="13" x2="16" y2="13"/>
+          <line x1="8" y1="17" x2="16" y2="17"/>
+        </svg>
+        <span>{t.auth.footerImpressum}</span>
+      </a>
+      <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer"
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textDecoration: 'none', color: C.brownM, fontSize: 10, fontFamily: "'Lora', serif" }}>
+        <InstagramIcon size={16} />
+        <span>{t.auth.footerInstagram}</span>
+      </a>
+    </div>
+  );
 
   return (
-    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', background: `linear-gradient(180deg, ${C.bg}, ${C.bgDeep})` }}>
-      <BloomIcon size={48} />
-      <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 500, color: C.brown, margin: '16px 0 8px' }}>
-        {t.auth.welcomeTitle} <em style={{ color: C.terra }}>Bloom</em>
-      </h1>
-      <p style={{ fontSize: 14, color: C.brownL, textAlign: 'center', maxWidth: 320, marginBottom: 32, lineHeight: 1.6 }}>
-        {t.auth.tagline}
-      </p>
+    <div style={{
+      minHeight: '100dvh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'flex-start',
+      padding: '48px 24px 24px', background: `linear-gradient(180deg, ${C.bg}, ${C.bgDeep})`,
+    }}>
 
-      {!mode && !sent && (
-        <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeUp 0.4s ease' }}>
-          <button onClick={() => setMode('signup')} style={btn.primary}>{t.auth.createNewAccount}</button>
-          <button onClick={() => setMode('login')} style={btn.secondary}>{t.auth.logIn}</button>
+      {/* ─── LANDING ─────────────────────────────────────────── */}
+      {screen === 'landing' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 320, flex: 1, animation: 'fadeUp 0.5s ease' }}>
+          <img
+            src="/bloom-flower.png" alt="Bloom"
+            style={{ width: 180, height: 'auto', marginBottom: 8, animation: 'gentleFloat 4s ease-in-out infinite' }}
+          />
+          <h1 style={{
+            fontFamily: "'Playfair Display', serif", fontSize: 40, fontWeight: 500,
+            color: C.terra, margin: '0 0 6px', letterSpacing: '0.02em',
+          }}>
+            Bloom
+          </h1>
+          <p style={{
+            fontSize: 14, color: C.brownL, textAlign: 'center', maxWidth: 280,
+            marginBottom: 36, lineHeight: 1.6, fontStyle: 'italic',
+          }}>
+            {t.auth.tagline}
+          </p>
+
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button onClick={() => setScreen('email')} style={btn.primary}>
+              {t.auth.logIn}
+            </button>
+            <a href={BLOOM_SHOP_URL} target="_blank" rel="noopener noreferrer"
+              style={{ ...btn.secondary, textAlign: 'center', textDecoration: 'none', display: 'block', boxSizing: 'border-box' }}>
+              {t.auth.joinBloom}
+            </a>
+          </div>
+
+          {footer}
         </div>
       )}
 
-      {mode === 'signup' && !sent && (
-        <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320, animation: 'fadeUp 0.4s ease' }}>
-          <p style={{ fontSize: 13, color: C.terra, fontWeight: 600, textAlign: 'center', marginBottom: 18, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            {t.auth.createTitle}
+      {/* ─── EMAIL STEP ──────────────────────────────────────── */}
+      {screen === 'email' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 320, flex: 1, animation: 'fadeUp 0.4s ease' }}>
+          <img src="/bloom-flower.png" alt="Bloom" style={{ width: 90, height: 'auto', marginBottom: 4, opacity: 0.85 }} />
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, margin: '10px 0 6px' }}>
+            {t.auth.emailStepTitle}
+          </h2>
+          <p style={{ fontSize: 13, color: C.brownL, textAlign: 'center', marginBottom: 22, lineHeight: 1.5 }}>
+            {t.auth.emailPrompt}
           </p>
-          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>{t.auth.yourName}</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder={t.auth.yourNamePlaceholder} style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
-          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>{t.auth.email}</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t.auth.emailPlaceholder} style={{ ...inputStyle, marginBottom: 8 }} />
-          {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 8 }}>{error}</p>}
-          <p style={{ fontSize: 11, color: C.brownM, opacity: 0.6, marginBottom: 20 }}>{t.auth.magicLinkHintSignup}</p>
-          <button type="submit" disabled={busy || !email || !name} style={{ ...btn.primary, opacity: email && name ? 1 : 0.4 }}>
-            {busy ? t.auth.sending : t.auth.signUpButton}
+
+          <form onSubmit={requestCode} style={{ width: '100%' }}>
+            <input
+              type="email" value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder={t.auth.emailPlaceholder}
+              autoFocus autoComplete="email" inputMode="email"
+              style={{ ...inputStyle, marginBottom: 10, textAlign: 'center' }}
+            />
+            {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 10, textAlign: 'center' }}>{error}</p>}
+            <button type="submit" disabled={busy || !email.trim()}
+              style={{ ...btn.primary, opacity: email.trim() ? 1 : 0.4 }}>
+              {busy ? t.auth.sending : t.auth.sendCode}
+            </button>
+          </form>
+
+          <button type="button" onClick={backToLanding}
+            style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, fontFamily: "'Lora', serif" }}>
+            {t.auth.backButton}
           </button>
-          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>{t.auth.backButton}</button>
-        </form>
+
+          {footer}
+        </div>
       )}
 
-      {mode === 'login' && !sent && (
-        <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320, animation: 'fadeUp 0.4s ease' }}>
-          <p style={{ fontSize: 13, color: C.terra, fontWeight: 600, textAlign: 'center', marginBottom: 18, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            {t.auth.welcomeBack}
+      {/* ─── CODE STEP ───────────────────────────────────────── */}
+      {screen === 'code' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 320, flex: 1, animation: 'fadeUp 0.4s ease' }}>
+          <div style={{ fontSize: 44, marginBottom: 4 }}>📬</div>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 500, color: C.brown, margin: '8px 0 6px' }}>
+            {t.auth.codeStepTitle}
+          </h2>
+          <p style={{ fontSize: 13, color: C.brownL, textAlign: 'center', marginBottom: 22, lineHeight: 1.5 }}>
+            {t.auth.codeStepDesc} <br /><strong style={{ color: C.brown }}>{email}</strong>
           </p>
-          <label style={{ fontSize: 12, color: C.brownM, display: 'block', marginBottom: 6 }}>{t.auth.email}</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t.auth.emailPlaceholder} style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
-          {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 8 }}>{error}</p>}
-          <p style={{ fontSize: 11, color: C.brownM, opacity: 0.6, marginBottom: 20 }}>{t.auth.magicLinkHint}</p>
-          <button type="submit" disabled={busy || !email} style={{ ...btn.primary, opacity: email ? 1 : 0.4 }}>
-            {busy ? t.auth.sending : t.auth.magicLinkButton}
-          </button>
-          <button type="button" onClick={reset} style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, marginTop: 14, cursor: 'pointer', padding: 8, width: '100%' }}>{t.auth.backButton}</button>
-        </form>
+
+          <form onSubmit={verifyCode} style={{ width: '100%' }}>
+            <input
+              type="text" value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder={t.auth.codePlaceholder}
+              autoFocus
+              inputMode="numeric" pattern="[0-9]*" autoComplete="one-time-code"
+              maxLength={6}
+              style={{
+                ...inputStyle,
+                textAlign: 'center', fontSize: 28, letterSpacing: 10,
+                fontFamily: "'Playfair Display', serif", fontWeight: 500,
+                marginBottom: 10, padding: '14px 12px',
+              }}
+            />
+            {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 10, textAlign: 'center' }}>{error}</p>}
+            <button type="submit" disabled={busy || code.length !== 6}
+              style={{ ...btn.primary, opacity: code.length === 6 ? 1 : 0.4 }}>
+              {busy ? t.auth.verifying : t.auth.verify}
+            </button>
+          </form>
+
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            {resent ? (
+              <p style={{ fontSize: 12, color: C.sage, fontStyle: 'italic', padding: 6 }}>{t.auth.resentCode}</p>
+            ) : (
+              <button type="button" onClick={resendCode} disabled={busy}
+                style={{ background: 'none', border: 'none', color: C.terra, fontSize: 12, cursor: 'pointer', padding: 6, fontFamily: "'Lora', serif", textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                {t.auth.resendCode}
+              </button>
+            )}
+            <button type="button" onClick={backToLanding}
+              style={{ background: 'none', border: 'none', color: C.brownM, fontSize: 12, cursor: 'pointer', padding: 6, fontFamily: "'Lora', serif" }}>
+              {t.auth.useDifferentEmail}
+            </button>
+          </div>
+
+          {footer}
+        </div>
       )}
 
-      {sent && (
-        <div style={{ textAlign: 'center', maxWidth: 320, animation: 'scaleIn 0.4s ease' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>📬</div>
-          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, color: C.brown, marginBottom: 8 }}>{t.auth.magicLinkSent}</h2>
-          <p style={{ fontSize: 14, color: C.brownL, lineHeight: 1.6 }}>
-            {t.auth.magicLinkSentDesc} <strong>{email}</strong>.
+      {/* ─── NOT REGISTERED ──────────────────────────────────── */}
+      {screen === 'notRegistered' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 320, flex: 1, animation: 'fadeUp 0.4s ease' }}>
+          <img src="/bloom-flower.png" alt="Bloom" style={{ width: 110, height: 'auto', marginBottom: 4, opacity: 0.6 }} />
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 500, color: C.brown, margin: '12px 0 8px', textAlign: 'center' }}>
+            {t.auth.notRegisteredTitle}
+          </h2>
+          <p style={{ fontSize: 13, color: C.brownL, textAlign: 'center', marginBottom: 24, lineHeight: 1.6 }}>
+            {t.auth.notRegisteredDesc}
           </p>
-          <button onClick={reset} style={{ ...btn.secondary, marginTop: 20, width: 'auto', padding: '10px 20px' }}>{t.auth.useDifferentEmail}</button>
+
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <a href={BLOOM_SHOP_URL} target="_blank" rel="noopener noreferrer"
+              style={{ ...btn.primary, textAlign: 'center', textDecoration: 'none', display: 'block', boxSizing: 'border-box' }}>
+              {t.auth.getBloom}
+            </a>
+            <button type="button" onClick={backToEmail} style={btn.secondary}>
+              {t.auth.tryDifferentEmail}
+            </button>
+          </div>
+
+          {footer}
         </div>
       )}
     </div>
