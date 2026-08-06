@@ -11,4 +11,22 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseKey || '');
+// ═══════════════════════════════════════════════════════════════
+// Session persistence — "logged in for life"
+// ═══════════════════════════════════════════════════════════════
+// persistSession   → keeps the session in localStorage across restarts
+// autoRefreshToken → silently rotates the access token before it expires
+// detectSessionInUrl → catches any lingering magic links (legacy)
+//
+// The refresh token lifetime is set in Supabase Dashboard → Auth → Sessions.
+// As long as the user opens the app within that window, they stay logged in
+// indefinitely (the refresh token rotates and the clock resets each time).
+// ═══════════════════════════════════════════════════════════════
+export const supabase = createClient(supabaseUrl || '', supabaseKey || '', {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storageKey: 'bloom-auth',
+  },
+});
