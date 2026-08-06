@@ -135,9 +135,15 @@ function SplashScreen() {
 // ═══════════════════════════════════════════════════════════════
 // External URLs used by the auth screen.
 const BLOOM_SHOP_URL = 'https://oneculture.world/collections/bloom';
+const TRY_FREE_URL = 'https://try-bloom-multilingual.vercel.app/';
 const ABOUT_URL = 'https://oneculture.world/pages/copy-of-philanthropie-leben-verandern-ein-akt-der-liebenswurdigkeit-nach-dem-anderen';
 const IMPRESSUM_URL = 'https://oneculture.world/pages/impressum';
 const INSTAGRAM_URL = 'https://www.instagram.com/oneculture.world/';
+
+// OTP length must match Supabase Dashboard → Auth → Providers → Email → OTP length.
+// Change here if you change it there. Default Supabase is 6; ours is currently 8.
+const OTP_LENGTH = 8;
+const OTP_PLACEHOLDER = '0'.repeat(OTP_LENGTH);
 
 // Instagram glyph as inline SVG (avoids extra assets, scales cleanly).
 function InstagramIcon({ size = 16, color = 'currentColor' }) {
@@ -157,93 +163,141 @@ function AuthScreen() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [resent, setResent] = useState(false);
+  // Resend cooldown — seconds remaining until user can request a new code.
+  // Prevents spamming Supabase's rate limiter and gives a visible countdown.
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const RESEND_COOLDOWN_SEC = 45;
+
+  // Tick down the cooldown once per second.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = setInterval(() => {
+      setResendCooldown(s => Math.max(0, s - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [resendCooldown]);
 
   // Browser language detection — before user has a profile.
   const browserLang = (typeof navigator !== 'undefined' ? (navigator.language || 'en').slice(0, 2) : 'en');
   const initialLang = ['en', 'de', 'es'].includes(browserLang) ? browserLang : 'en';
   const t = useT(initialLang);
 
-  // ─── Request a 6-digit OTP by email ─────────────────────────
+  // Simple email format check — catches typos before hitting the network.
+  const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
+  // ─── Request an OTP by email ────────────────────────────────
   // shouldCreateUser: false means Supabase will NOT auto-create an account
   // for unknown emails — it returns an error instead, which we map to the
   // "not registered" screen. Only paid customers (already provisioned in
   // Supabase Auth) can log in.
   const requestCode = async (e) => {
     e?.preventDefault?.();
+    if (busy) return;
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) return;
-    setBusy(true); setError('');
-    const { error: authErr } = await supabase.auth.signInWithOtp({
-      email: trimmed,
-      options: { shouldCreateUser: false },
-    });
-    setBusy(false);
-    if (authErr) {
-      const msg = (authErr.message || '').toLowerCase();
-      // Supabase returns "Signups not allowed for otp" when the user doesn't exist.
-      if (msg.includes('signup') && msg.includes('not allowed')) {
-        setScreen('notRegistered');
-      } else if (msg.includes('not found') || msg.includes('user not found')) {
-        setScreen('notRegistered');
-      } else if (msg.includes('rate limit') || msg.includes('too many')) {
-        setError(t.auth.rateLimit);
-      } else {
-        setError(authErr.message);
-      }
+    if (!isValidEmail(trimmed)) {
+      setError(t.auth.invalidEmail);
       return;
     }
-    setScreen('code');
+    setBusy(true); setError('');
+    try {
+      const { error: authErr } = await supabase.auth.signInWithOtp({
+        email: trimmed,
+        options: { shouldCreateUser: false },
+      });
+      if (authErr) {
+        const msg = (authErr.message || '').toLowerCase();
+        // Supabase returns "Signups not allowed for otp" when the user doesn't exist.
+        if (msg.includes('signup') && msg.includes('not allowed')) {
+          setScreen('notRegistered');
+        } else if (msg.includes('not found') || msg.includes('user_not_found')) {
+          setScreen('notRegistered');
+        } else if (msg.includes('rate limit') || msg.includes('too many')) {
+          setError(t.auth.rateLimit);
+        } else {
+          setError(authErr.message);
+        }
+        return;
+      }
+      // Success — persist the normalized email and open the code screen.
+      setEmail(trimmed);
+      setScreen('code');
+      setResendCooldown(RESEND_COOLDOWN_SEC);
+    } catch (err) {
+      console.error('OTP request failed:', err);
+      setError(t.auth.genericError);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  // ─── Verify the 6-digit OTP ─────────────────────────────────
+  // ─── Verify the OTP ─────────────────────────────────────────
   const verifyCode = async (e) => {
     e?.preventDefault?.();
+    if (busy) return;
     const cleanCode = code.replace(/\D/g, '');
-    if (cleanCode.length !== 6) return;
+    if (cleanCode.length !== OTP_LENGTH) return;
     setBusy(true); setError('');
-    const { error: authErr } = await supabase.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: cleanCode,
-      type: 'email',
-    });
-    setBusy(false);
-    if (authErr) {
-      const msg = (authErr.message || '').toLowerCase();
-      if (msg.includes('expired')) setError(t.auth.codeExpired);
-      else if (msg.includes('invalid') || msg.includes('token')) setError(t.auth.invalidCode);
-      else if (msg.includes('rate limit') || msg.includes('too many')) setError(t.auth.tooManyAttempts);
-      else setError(authErr.message);
-      return;
+    try {
+      const { data, error: authErr } = await supabase.auth.verifyOtp({
+        email: email.trim().toLowerCase(),
+        token: cleanCode,
+        type: 'email',
+      });
+      if (authErr) {
+        const msg = (authErr.message || '').toLowerCase();
+        if (msg.includes('expired')) setError(t.auth.codeExpired);
+        else if (msg.includes('invalid') || msg.includes('token')) setError(t.auth.invalidCode);
+        else if (msg.includes('rate limit') || msg.includes('too many')) setError(t.auth.tooManyAttempts);
+        else setError(authErr.message);
+        return;
+      }
+      // Defensive: verifyOtp without error should always return a session,
+      // but if it doesn't we want to know rather than let App hang unauthenticated.
+      if (!data?.session || !data?.user) {
+        setError(t.auth.sessionError);
+        return;
+      }
+      // Success — Supabase session is set, onAuthStateChange re-renders App into MainApp.
+    } catch (err) {
+      console.error('OTP verification failed:', err);
+      setError(t.auth.genericError);
+    } finally {
+      setBusy(false);
     }
-    // Success — Supabase session is now set, App will re-render into MainApp.
   };
 
   const resendCode = async () => {
-    if (busy) return;
+    if (busy || resendCooldown > 0) return;
     setBusy(true); setError('');
-    const { error: authErr } = await supabase.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
-      options: { shouldCreateUser: false },
-    });
-    setBusy(false);
-    if (authErr) {
-      const msg = (authErr.message || '').toLowerCase();
-      if (msg.includes('rate limit') || msg.includes('too many')) setError(t.auth.rateLimit);
-      else setError(authErr.message);
-      return;
+    try {
+      const { error: authErr } = await supabase.auth.signInWithOtp({
+        email: email.trim().toLowerCase(),
+        options: { shouldCreateUser: false },
+      });
+      if (authErr) {
+        const msg = (authErr.message || '').toLowerCase();
+        if (msg.includes('rate limit') || msg.includes('too many')) setError(t.auth.rateLimit);
+        else setError(authErr.message);
+        return;
+      }
+      // Kick off the visible cooldown so the user can't spam-tap.
+      setResendCooldown(RESEND_COOLDOWN_SEC);
+    } catch (err) {
+      console.error('OTP resend failed:', err);
+      setError(t.auth.genericError);
+    } finally {
+      setBusy(false);
     }
-    setResent(true);
-    setTimeout(() => setResent(false), 4000);
   };
 
   const backToLanding = () => {
     setScreen('landing');
-    setEmail(''); setCode(''); setError(''); setResent(false);
+    setEmail(''); setCode(''); setError(''); setResendCooldown(0);
   };
   const backToEmail = () => {
     setScreen('email');
-    setCode(''); setError(''); setResent(false);
+    setCode(''); setError(''); setResendCooldown(0);
   };
 
   // ─── Shared footer with 3 links ─────────────────────────────
@@ -316,6 +370,17 @@ function AuthScreen() {
             </a>
           </div>
 
+          {/* Small 'try free' link — lower-commitment third option */}
+          <a href={TRY_FREE_URL} target="_blank" rel="noopener noreferrer"
+            style={{
+              marginTop: 20, color: C.brownL, fontSize: 12,
+              fontFamily: "'Lora', serif", fontStyle: 'italic',
+              textDecoration: 'underline', textUnderlineOffset: 3,
+              textDecorationColor: `${C.terra}55`,
+            }}>
+            {t.auth.tryFree} →
+          </a>
+
           {footer}
         </div>
       )}
@@ -369,28 +434,30 @@ function AuthScreen() {
           <form onSubmit={verifyCode} style={{ width: '100%' }}>
             <input
               type="text" value={code}
-              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder={t.auth.codePlaceholder}
+              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
+              placeholder={OTP_PLACEHOLDER}
               autoFocus
               inputMode="numeric" pattern="[0-9]*" autoComplete="one-time-code"
-              maxLength={6}
+              maxLength={OTP_LENGTH}
               style={{
                 ...inputStyle,
-                textAlign: 'center', fontSize: 28, letterSpacing: 10,
+                textAlign: 'center', fontSize: 24, letterSpacing: 6,
                 fontFamily: "'Playfair Display', serif", fontWeight: 500,
-                marginBottom: 10, padding: '14px 12px',
+                marginBottom: 10, padding: '14px 8px',
               }}
             />
             {error && <p style={{ fontSize: 13, color: '#C75050', marginBottom: 10, textAlign: 'center' }}>{error}</p>}
-            <button type="submit" disabled={busy || code.length !== 6}
-              style={{ ...btn.primary, opacity: code.length === 6 ? 1 : 0.4 }}>
+            <button type="submit" disabled={busy || code.length !== OTP_LENGTH}
+              style={{ ...btn.primary, opacity: code.length === OTP_LENGTH ? 1 : 0.4 }}>
               {busy ? t.auth.verifying : t.auth.verify}
             </button>
           </form>
 
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            {resent ? (
-              <p style={{ fontSize: 12, color: C.sage, fontStyle: 'italic', padding: 6 }}>{t.auth.resentCode}</p>
+            {resendCooldown > 0 ? (
+              <p style={{ fontSize: 12, color: C.brownM, fontStyle: 'italic', padding: 6 }}>
+                {t.fill(t.auth.resendCountdown, { n: resendCooldown })}
+              </p>
             ) : (
               <button type="button" onClick={resendCode} disabled={busy}
                 style={{ background: 'none', border: 'none', color: C.terra, fontSize: 12, cursor: 'pointer', padding: 6, fontFamily: "'Lora', serif", textDecoration: 'underline', textUnderlineOffset: 2 }}>
