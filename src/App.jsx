@@ -1386,6 +1386,7 @@ function CheckInFlipCard({
           transformStyle: 'preserve-3d',
           transition: 'transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1)',
           transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+          willChange: 'transform', 
         }}>
           {/* FRONT — Answer side */}
           <div style={{
@@ -1399,6 +1400,8 @@ function CheckInFlipCard({
             width: '100%',
             top: 0, left: 0,
             boxSizing: 'border-box',
+            visibility: flipped ? 'hidden' : 'visible',       
+            transition: 'visibility 0s linear 0.3s',           
           }}>
             {showAuthor && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -1460,6 +1463,8 @@ function CheckInFlipCard({
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
+            visibility: flipped ? 'visible' : 'hidden',        
+            transition: 'visibility 0s linear 0.3s',           
           }}>
             <p style={{
               fontSize: 10, color: accentColor, textTransform: 'uppercase',
@@ -1492,9 +1497,7 @@ function CheckInFlipCard({
       )}
     </>
   );
-}
-
-// ═══════════════════════════════════════════════════════════════
+}// ═══════════════════════════════════════════════════════════════
 // TODAY TAB
 // ═══════════════════════════════════════════════════════════════
 function TodayTab({ user, profile, garden, question, inspiration, stats, pendingRequests, onCheckIn, onShowSettings, t }) {
